@@ -13,6 +13,9 @@ import (
 func ListPods(ctx context.Context, client *Client, ns string) ([]PodInfo, error) {
 	podList, err := client.Clientset().CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
+		if ns == AllNamespaces {
+			return nil, fmt.Errorf("failed to list pods across all namespaces: %w", err)
+		}
 		return nil, fmt.Errorf("failed to list pods in namespace %q: %w", ns, err)
 	}
 

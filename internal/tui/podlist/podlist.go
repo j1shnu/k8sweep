@@ -11,18 +11,21 @@ import (
 
 // Model represents the interactive pod list component.
 type Model struct {
-	items    []k8s.PodInfo
-	cursor   int
-	selected map[string]struct{} // key: "namespace/name"
-	width    int
-	height   int
-	offset   int // viewport scroll offset
+	items         []k8s.PodInfo
+	cursor        int
+	selected      map[string]struct{} // key: "namespace/name"
+	width         int
+	height        int
+	offset        int // viewport scroll offset
+	loading       bool
+	showNamespace bool // show namespace column (all-namespaces mode)
 }
 
 // New creates an empty pod list model.
 func New() Model {
 	return Model{
 		selected: make(map[string]struct{}),
+		loading:  true,
 	}
 }
 
@@ -31,27 +34,52 @@ func (m Model) Len() int {
 	return len(m.items)
 }
 
+// SetLoading returns a new model in the loading state.
+func (m Model) SetLoading() Model {
+	return Model{
+		items:         m.items,
+		cursor:        m.cursor,
+		selected:      m.selected,
+		width:         m.width,
+		height:        m.height,
+		offset:        m.offset,
+		loading:       true,
+		showNamespace: m.showNamespace,
+	}
+}
+
+// SetShowNamespace returns a new model that shows or hides the namespace column.
+func (m Model) SetShowNamespace(show bool) Model {
+	newModel := m
+	newModel.showNamespace = show
+	return newModel
+}
+
 // SetItems returns a new model with the given pods, resetting cursor and selection.
 func (m Model) SetItems(pods []k8s.PodInfo) Model {
 	return Model{
-		items:    pods,
-		cursor:   0,
-		selected: make(map[string]struct{}),
-		width:    m.width,
-		height:   m.height,
-		offset:   0,
+		items:         pods,
+		cursor:        0,
+		selected:      make(map[string]struct{}),
+		width:         m.width,
+		height:        m.height,
+		offset:        0,
+		loading:       false,
+		showNamespace: m.showNamespace,
 	}
 }
 
 // SetSize returns a new model with the updated dimensions.
 func (m Model) SetSize(width, height int) Model {
 	return Model{
-		items:    m.items,
-		cursor:   m.cursor,
-		selected: m.selected,
-		width:    width,
-		height:   height,
-		offset:   m.offset,
+		items:         m.items,
+		cursor:        m.cursor,
+		selected:      m.selected,
+		width:         width,
+		height:        height,
+		offset:        m.offset,
+		loading:       m.loading,
+		showNamespace: m.showNamespace,
 	}
 }
 
@@ -75,12 +103,14 @@ func (m Model) ToggleSelect() Model {
 		newSelected[key] = struct{}{}
 	}
 	return Model{
-		items:    m.items,
-		cursor:   m.cursor,
-		selected: newSelected,
-		width:    m.width,
-		height:   m.height,
-		offset:   m.offset,
+		items:         m.items,
+		cursor:        m.cursor,
+		selected:      newSelected,
+		width:         m.width,
+		height:        m.height,
+		offset:        m.offset,
+		loading:       m.loading,
+		showNamespace: m.showNamespace,
 	}
 }
 
@@ -91,24 +121,28 @@ func (m Model) SelectAll() Model {
 		newSelected[podKey(p)] = struct{}{}
 	}
 	return Model{
-		items:    m.items,
-		cursor:   m.cursor,
-		selected: newSelected,
-		width:    m.width,
-		height:   m.height,
-		offset:   m.offset,
+		items:         m.items,
+		cursor:        m.cursor,
+		selected:      newSelected,
+		width:         m.width,
+		height:        m.height,
+		offset:        m.offset,
+		loading:       m.loading,
+		showNamespace: m.showNamespace,
 	}
 }
 
 // DeselectAll deselects all items.
 func (m Model) DeselectAll() Model {
 	return Model{
-		items:    m.items,
-		cursor:   m.cursor,
-		selected: make(map[string]struct{}),
-		width:    m.width,
-		height:   m.height,
-		offset:   m.offset,
+		items:         m.items,
+		cursor:        m.cursor,
+		selected:      make(map[string]struct{}),
+		width:         m.width,
+		height:        m.height,
+		offset:        m.offset,
+		loading:       m.loading,
+		showNamespace: m.showNamespace,
 	}
 }
 
@@ -126,12 +160,13 @@ func (m Model) MoveUp() Model {
 		newOffset = newCursor
 	}
 	return Model{
-		items:    m.items,
-		cursor:   newCursor,
-		selected: m.selected,
-		width:    m.width,
-		height:   m.height,
-		offset:   newOffset,
+		items:         m.items,
+		cursor:        newCursor,
+		selected:      m.selected,
+		width:         m.width,
+		height:        m.height,
+		offset:        newOffset,
+		showNamespace: m.showNamespace,
 	}
 }
 
@@ -153,12 +188,13 @@ func (m Model) MoveDown() Model {
 		newOffset = newCursor - visibleRows + 1
 	}
 	return Model{
-		items:    m.items,
-		cursor:   newCursor,
-		selected: m.selected,
-		width:    m.width,
-		height:   m.height,
-		offset:   newOffset,
+		items:         m.items,
+		cursor:        newCursor,
+		selected:      m.selected,
+		width:         m.width,
+		height:        m.height,
+		offset:        newOffset,
+		showNamespace: m.showNamespace,
 	}
 }
 
@@ -180,6 +216,9 @@ func (m Model) SelectedCount() int {
 
 // View renders the pod list.
 func (m Model) View() string {
+	if m.loading {
+		return styles.FooterHelp.Render("  Fetching pods...")
+	}
 	if len(m.items) == 0 {
 		return styles.FooterHelp.Render("  No pods found.")
 	}
@@ -217,8 +256,14 @@ func (m Model) View() string {
 		age := formatAge(pod.Age)
 		name := pod.Name
 
-		line := fmt.Sprintf("%s%s%-45s %s  %s  restarts: %d",
-			pointer, checkbox, name, status, age, pod.RestartCount)
+		var line string
+		if m.showNamespace {
+			line = fmt.Sprintf("%s%s%-20s %-45s %s  %s  restarts: %d",
+				pointer, checkbox, pod.Namespace, name, status, age, pod.RestartCount)
+		} else {
+			line = fmt.Sprintf("%s%s%-45s %s  %s  restarts: %d",
+				pointer, checkbox, name, status, age, pod.RestartCount)
+		}
 
 		if isCursor {
 			line = styles.SelectedRow.Render(line)

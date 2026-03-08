@@ -53,6 +53,17 @@ var (
 	Title = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#7D56F4"))
+
+	FilterActiveHeaderBox = lipgloss.NewStyle().
+				Bold(true).
+				BorderStyle(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#FFAA00")).
+				Padding(0, 1)
+
+	FilterBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#000000")).
+			Background(lipgloss.Color("#FFAA00"))
 )
 
 // StyleForStatus returns the appropriate lipgloss style for a pod status.

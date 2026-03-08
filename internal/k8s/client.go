@@ -12,9 +12,10 @@ import (
 
 // ClientConfig holds the configuration for creating a Kubernetes client.
 type ClientConfig struct {
-	KubeconfigPath   string
-	ContextOverride  string
+	KubeconfigPath    string
+	ContextOverride   string
 	NamespaceOverride string
+	AllNamespaces     bool
 }
 
 // Client wraps a Kubernetes clientset and cluster metadata.
@@ -58,6 +59,9 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}
 	if cfg.NamespaceOverride != "" {
 		namespace = cfg.NamespaceOverride
+	}
+	if cfg.AllNamespaces {
+		namespace = AllNamespaces
 	}
 
 	server := ""

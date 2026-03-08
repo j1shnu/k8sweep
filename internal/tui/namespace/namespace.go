@@ -33,11 +33,18 @@ func (m Model) IsActive() bool {
 	return m.active
 }
 
+// AllNamespacesLabel is the display label for the all-namespaces option.
+const AllNamespacesLabel = "All Namespaces"
+
 // SetNamespaces returns a new model with the namespace list populated.
+// Prepends an "All Namespaces" option at the top.
 func (m Model) SetNamespaces(ns []string) Model {
+	withAll := make([]string, 0, len(ns)+1)
+	withAll = append(withAll, AllNamespacesLabel)
+	withAll = append(withAll, ns...)
 	return Model{
-		namespaces: ns,
-		filtered:   ns,
+		namespaces: withAll,
+		filtered:   withAll,
 		input:      m.input,
 		cursor:     0,
 		selected:   m.selected,

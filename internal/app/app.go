@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -50,10 +51,11 @@ type Model struct {
 	confirm    confirm.Model
 	nsSwitcher namespace.Model
 
-	statusMsg string
-	err       error
-	width     int
-	height    int
+	totalPodCount int
+	statusMsg     string
+	err           error
+	width         int
+	height        int
 }
 
 // NewModel creates the initial application model.
@@ -64,15 +66,20 @@ func NewModel(client *k8s.Client) Model {
 	// Pre-assign the initial fetchID so Init can create a matching fetch command.
 	initialID := fetchSeq.Add(1)
 
+	pl := podlist.New()
+	if info.Namespace == k8s.AllNamespaces {
+		pl = pl.SetShowNamespace(true)
+	}
+
 	return Model{
-		client:    client,
-		keys:      keys,
-		state:     stateBrowsing,
-		namespace: info.Namespace,
-		fetchID:   initialID,
-		header:    header.New(info.ContextName, info.Namespace),
-		podList:   podlist.New(),
-		footer:    footer.New(keys.ShortHelp()),
+		client:     client,
+		keys:       keys,
+		state:      stateBrowsing,
+		namespace:  info.Namespace,
+		fetchID:    initialID,
+		header:     header.New(info.ContextName, info.Namespace),
+		podList:    pl,
+		footer:     footer.New(keys.ShortHelp()),
 		nsSwitcher: namespace.New(),
 	}
 }
@@ -149,11 +156,7 @@ func (m Model) View() string {
 		if m.err != nil {
 			status = "\n Error: " + m.err.Error()
 		}
-		filterLabel := ""
-		if m.filter.ShowDirtyOnly {
-			filterLabel = "  [filter: dirty only]"
-		}
-		return m.header.View() + filterLabel + "\n" +
+		return m.header.View() + "\n" +
 			m.podList.View() + status + "\n" +
 			m.footer.View() + "\n"
 	}
@@ -185,12 +188,15 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 		newModel.err = msg.Err
 		return newModel
 	}
+	totalCount := len(msg.Pods)
 	pods := msg.Pods
 	if m.filter.ShowDirtyOnly {
 		pods = k8s.FilterDirtyPods(pods)
 	}
 	newModel := m
 	newModel.podList = m.podList.SetItems(pods)
+	newModel.totalPodCount = totalCount
+	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(pods), totalCount))
 	newModel.err = nil
 	newModel.statusMsg = ""
 	return newModel
@@ -224,6 +230,7 @@ func (m Model) handleNamespacesLoaded(msg NamespacesLoadedMsg) Model {
 	newModel := m
 	newModel.nsSwitcher = m.nsSwitcher.SetNamespaces(msg.Namespaces).Activate()
 	newModel.state = stateSwitchingNamespace
+	newModel.statusMsg = ""
 	return newModel
 }
 
@@ -282,14 +289,24 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel.state = stateConfirming
 		return newModel, nil
 	case key.Matches(msg, m.keys.Namespace):
-		return m, m.fetchNamespacesCmd()
+		newModel := m
+		newModel.statusMsg = "Loading namespaces..."
+		return newModel, newModel.fetchNamespacesCmd()
 	case key.Matches(msg, m.keys.Refresh):
 		newModel := m
 		newModel.statusMsg = "Refreshing..."
 		return newModel, newModel.fetchPodsCmd()
 	case key.Matches(msg, m.keys.Filter):
+		newFilter := !m.filter.ShowDirtyOnly
 		newModel := m
-		newModel.filter = k8s.ResourceFilter{ShowDirtyOnly: !m.filter.ShowDirtyOnly}
+		newModel.filter = k8s.ResourceFilter{ShowDirtyOnly: newFilter}
+		newModel.podList = m.podList.SetLoading()
+		if newFilter {
+			newModel.statusMsg = "Filter: showing dirty pods only"
+		} else {
+			newModel.statusMsg = "Filter: showing all pods"
+		}
+		newModel.header = m.header.SetFilter(newFilter, "")
 		return newModel, newModel.fetchPodsCmd()
 	}
 	return m, nil
@@ -329,14 +346,19 @@ func (m Model) updateNSSwitcher(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
+	// Map the "All Namespaces" label back to the sentinel value
+	if ns == namespace.AllNamespacesLabel {
+		ns = k8s.AllNamespaces
+	}
+	isAllNS := ns == k8s.AllNamespaces
 	newModel := Model{
 		client:     m.client,
 		keys:       m.keys,
 		state:      stateBrowsing,
 		filter:     m.filter,
 		namespace:  ns,
-		header:     m.header.SetNamespace(ns),
-		podList:    m.podList.SetItems(nil),
+		header:     m.header.SetNamespace(ns).SetFilter(m.filter.ShowDirtyOnly, ""),
+		podList:    m.podList.SetShowNamespace(isAllNS).SetItems(nil).SetLoading(),
 		footer:     m.footer,
 		confirm:    m.confirm,
 		nsSwitcher: m.nsSwitcher.Deactivate(),
@@ -387,4 +409,12 @@ func (m Model) tickCmd() tea.Cmd {
 	return tea.Tick(pollInterval, func(time.Time) tea.Msg {
 		return TickMsg{}
 	})
+}
+
+// buildPodCountLabel returns a label like "3/10 dirty pods" when filter is active.
+func buildPodCountLabel(filterActive bool, shown, total int) string {
+	if !filterActive {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d dirty pods", shown, total)
 }

@@ -103,8 +103,14 @@ func TestEmptyList_Operations(t *testing.T) {
 	assert.Equal(t, 0, m.SelectedCount())
 }
 
-func TestView_Empty(t *testing.T) {
+func TestView_Loading(t *testing.T) {
 	m := New()
+	view := m.View()
+	assert.Contains(t, view, "Fetching pods...")
+}
+
+func TestView_Empty(t *testing.T) {
+	m := New().SetItems(nil) // loading done, no pods
 	view := m.View()
 	assert.Contains(t, view, "No pods found")
 }
@@ -139,4 +145,56 @@ func TestLen(t *testing.T) {
 	assert.Equal(t, 0, m.Len())
 	m = m.SetItems(samplePods())
 	assert.Equal(t, 5, m.Len())
+}
+
+func TestShowNamespace_Preserved(t *testing.T) {
+	m := New().SetShowNamespace(true).SetItems(samplePods())
+	assert.True(t, m.showNamespace)
+
+	// Verify preserved through all operations
+	m = m.MoveDown()
+	assert.True(t, m.showNamespace)
+	m = m.MoveUp()
+	assert.True(t, m.showNamespace)
+	m = m.ToggleSelect()
+	assert.True(t, m.showNamespace)
+	m = m.SelectAll()
+	assert.True(t, m.showNamespace)
+	m = m.DeselectAll()
+	assert.True(t, m.showNamespace)
+	m = m.SetSize(120, 10)
+	assert.True(t, m.showNamespace)
+	m = m.SetLoading()
+	assert.True(t, m.showNamespace)
+}
+
+func TestView_WithNamespaceColumn(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "pod-1", Namespace: "kube-system", Status: k8s.StatusRunning},
+		{Name: "pod-2", Namespace: "default", Status: k8s.StatusFailed},
+	}
+	m := New().SetShowNamespace(true).SetItems(pods).SetSize(150, 10)
+	view := m.View()
+	assert.Contains(t, view, "kube-system")
+	assert.Contains(t, view, "default")
+	assert.Contains(t, view, "pod-1")
+	assert.Contains(t, view, "pod-2")
+}
+
+func TestView_WithoutNamespaceColumn(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "pod-1", Namespace: "kube-system", Status: k8s.StatusRunning},
+	}
+	m := New().SetItems(pods).SetSize(120, 10)
+	view := m.View()
+	assert.Contains(t, view, "pod-1")
+	assert.NotContains(t, view, "kube-system")
+}
+
+func TestLoadingPreservedAcrossOperations(t *testing.T) {
+	m := New() // loading=true by default
+	m = m.ToggleSelect()
+	assert.True(t, m.loading)
+	m = m.SelectAll()
+	assert.True(t, m.loading)
 }

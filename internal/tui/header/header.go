@@ -9,16 +9,18 @@ import (
 
 // Model represents the header component showing cluster context and namespace.
 type Model struct {
-	ClusterName string
-	Namespace   string
-	Width       int
+	clusterName   string
+	namespace     string
+	filterActive  bool
+	podCountLabel string
+	width         int
 }
 
 // New creates a new header model.
 func New(clusterName, namespace string) Model {
 	return Model{
-		ClusterName: clusterName,
-		Namespace:   namespace,
+		clusterName: clusterName,
+		namespace:   namespace,
 	}
 }
 
@@ -27,9 +29,11 @@ func (m Model) Update(msg tea.Msg) Model {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return Model{
-			ClusterName: m.ClusterName,
-			Namespace:   m.Namespace,
-			Width:       msg.Width,
+			clusterName:   m.clusterName,
+			namespace:     m.namespace,
+			filterActive:  m.filterActive,
+			podCountLabel: m.podCountLabel,
+			width:         msg.Width,
 		}
 	}
 	return m
@@ -38,18 +42,47 @@ func (m Model) Update(msg tea.Msg) Model {
 // SetNamespace returns a new model with the updated namespace.
 func (m Model) SetNamespace(ns string) Model {
 	return Model{
-		ClusterName: m.ClusterName,
-		Namespace:   ns,
-		Width:       m.Width,
+		clusterName:   m.clusterName,
+		namespace:     ns,
+		filterActive:  m.filterActive,
+		podCountLabel: m.podCountLabel,
+		width:         m.width,
+	}
+}
+
+// SetFilter returns a new model with the updated filter state and pod count label.
+func (m Model) SetFilter(active bool, countLabel string) Model {
+	return Model{
+		clusterName:   m.clusterName,
+		namespace:     m.namespace,
+		filterActive:  active,
+		podCountLabel: countLabel,
+		width:         m.width,
 	}
 }
 
 // View renders the header.
 func (m Model) View() string {
-	content := fmt.Sprintf("⎈ %s  │  ns: %s", m.ClusterName, m.Namespace)
+	nsLabel := m.namespace
+	if nsLabel == "" {
+		nsLabel = "All Namespaces"
+	}
+
+	content := fmt.Sprintf("⎈ %s  │  ns: %s", m.clusterName, nsLabel)
+
+	if m.filterActive {
+		content += "  │  " + styles.FilterBadge.Render(" FILTERED ")
+		if m.podCountLabel != "" {
+			content += "  " + m.podCountLabel
+		}
+	}
+
 	style := styles.HeaderBox
-	if m.Width > 0 {
-		style = style.Width(m.Width - 2)
+	if m.filterActive {
+		style = styles.FilterActiveHeaderBox
+	}
+	if m.width > 0 {
+		style = style.Width(m.width - 2)
 	}
 	return style.Render(content)
 }

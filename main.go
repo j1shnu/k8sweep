@@ -25,12 +25,16 @@ func main() {
 	namespace := flag.String("namespace", "", "")
 	flag.StringVar(namespace, "n", "", "")
 
+	allNamespaces := flag.Bool("all-namespaces", false, "")
+	flag.BoolVar(allNamespaces, "A", false, "")
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: k8sweep [flags]\n\nFlags:\n")
 		fmt.Fprintf(os.Stderr, "  -v, --version              print version and exit\n")
 		fmt.Fprintf(os.Stderr, "  -k, --kubeconfig <path>    path to kubeconfig file (defaults to KUBECONFIG env or ~/.kube/config)\n")
 		fmt.Fprintf(os.Stderr, "  -c, --context <name>       kubernetes context to use\n")
 		fmt.Fprintf(os.Stderr, "  -n, --namespace <name>     kubernetes namespace (defaults to current context's namespace)\n")
+		fmt.Fprintf(os.Stderr, "  -A, --all-namespaces       show pods from all namespaces\n")
 	}
 
 	flag.Parse()
@@ -44,6 +48,7 @@ func main() {
 		KubeconfigPath:    *kubeconfig,
 		ContextOverride:   *context,
 		NamespaceOverride: *namespace,
+		AllNamespaces:     *allNamespaces,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to cluster: %v\n", err)

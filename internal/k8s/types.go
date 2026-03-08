@@ -51,6 +51,10 @@ func (p PodInfo) GetNamespace() string { return p.Namespace }
 // GetStatus returns the pod status string (implements ResourceItem).
 func (p PodInfo) GetStatus() string { return string(p.Status) }
 
+// AllNamespaces is the sentinel value indicating all-namespaces mode.
+// When Namespace is set to this value, pods from all namespaces are fetched.
+const AllNamespaces = ""
+
 // ClusterInfo holds the current cluster connection details.
 type ClusterInfo struct {
 	ContextName string
