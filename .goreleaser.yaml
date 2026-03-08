@@ -18,12 +18,13 @@ builds:
 
 archives:
   - id: k8sweep
-    builds:
+    ids:
       - k8sweep
     name_template: "k8sweep_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
 
 checksum:
   name_template: checksums.txt
