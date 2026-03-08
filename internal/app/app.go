@@ -14,6 +14,7 @@ import (
 	"github.com/jprasad/k8sweep/internal/tui/confirm"
 	"github.com/jprasad/k8sweep/internal/tui/footer"
 	"github.com/jprasad/k8sweep/internal/tui/header"
+	"github.com/jprasad/k8sweep/internal/tui/help"
 	"github.com/jprasad/k8sweep/internal/tui/namespace"
 	"github.com/jprasad/k8sweep/internal/tui/podlist"
 	"github.com/jprasad/k8sweep/internal/tui/styles"
@@ -26,6 +27,7 @@ const (
 	stateBrowsing appState = iota
 	stateConfirming
 	stateSwitchingNamespace
+	stateHelp
 )
 
 const (
@@ -56,6 +58,7 @@ type Model struct {
 	footer     footer.Model
 	confirm    confirm.Model
 	nsSwitcher namespace.Model
+	help       help.Model
 
 	allPods        []k8s.PodInfo // cached full pod list for client-side filtering
 	totalPodCount  int
@@ -90,6 +93,7 @@ func NewModel(client *k8s.Client) Model {
 		podList:    pl,
 		footer:     footer.New(keys.ShortHelp()),
 		nsSwitcher: namespace.New(),
+		help:       help.New(keys.FullHelp()),
 	}
 }
 
@@ -168,6 +172,11 @@ func (m Model) View() string {
 	}
 
 	switch m.state {
+	case stateHelp:
+		return m.header.View() + "\n" +
+			m.help.View() + "\n" +
+			m.footer.View() + "\n"
+
 	case stateConfirming:
 		return m.header.View() + "\n" +
 			m.podList.View() + "\n\n" +
@@ -206,6 +215,7 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	newModel.header = m.header.Update(msg)
 	newModel.podList = m.podList.SetSize(msg.Width, listHeight)
 	newModel.footer = m.footer.SetWidth(msg.Width)
+	newModel.help = m.help.SetWidth(msg.Width)
 	newModel.width = msg.Width
 	newModel.height = msg.Height
 	return newModel
@@ -278,7 +288,7 @@ func (m Model) handleNamespacesLoaded(msg NamespacesLoadedMsg) Model {
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 	// Global quit
-	if key.Matches(msg, m.keys.Quit) && m.state == stateBrowsing {
+	if key.Matches(msg, m.keys.Quit) && (m.state == stateBrowsing || m.state == stateHelp) {
 		return m, tea.Quit
 	}
 
@@ -289,12 +299,28 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleConfirmingKey(msg)
 	case stateSwitchingNamespace:
 		return m.updateNSSwitcher(msg)
+	case stateHelp:
+		return m.handleHelpKey(msg)
+	}
+	return m, nil
+}
+
+func (m Model) handleHelpKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if key.Matches(msg, m.keys.Help) || msg.String() == "esc" {
+		newModel := m
+		newModel.state = stateBrowsing
+		return newModel, nil
 	}
 	return m, nil
 }
 
 func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch {
+	case key.Matches(msg, m.keys.Help):
+		newModel := m
+		newModel.state = stateHelp
+		newModel.help = m.help.SetWidth(m.width)
+		return newModel, nil
 	case key.Matches(msg, m.keys.Up):
 		newModel := m
 		newModel.podList = m.podList.MoveUp()
