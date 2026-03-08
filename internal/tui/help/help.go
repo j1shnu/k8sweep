@@ -49,6 +49,10 @@ func (m Model) View() string {
 			desc := styles.FooterHelp.Render(h.Desc)
 			b.WriteString("  " + keyStr + "  " + desc + "\n")
 		}
+		// gg is raw key logic, not a key.Binding — append to Navigation section
+		if i == 0 {
+			b.WriteString("  " + styles.LoadingPrefix.Render("[gg]") + "  " + styles.FooterHelp.Render("go to first pod") + "\n")
+		}
 	}
 
 	b.WriteString("\n")

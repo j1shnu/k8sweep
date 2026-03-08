@@ -371,6 +371,34 @@ func (m Model) DeselectAll() Model {
 	}
 }
 
+// GoTop moves the cursor to the first item.
+func (m Model) GoTop() Model {
+	if len(m.items) == 0 {
+		return m
+	}
+	newModel := m
+	newModel.cursor = 0
+	newModel.offset = 0
+	return newModel
+}
+
+// GoBottom moves the cursor to the last item.
+func (m Model) GoBottom() Model {
+	if len(m.items) == 0 {
+		return m
+	}
+	newModel := m
+	newModel.cursor = len(m.items) - 1
+	visibleRows := m.height
+	if visibleRows <= 0 {
+		visibleRows = 10
+	}
+	if newModel.cursor >= visibleRows {
+		newModel.offset = newModel.cursor - visibleRows + 1
+	}
+	return newModel
+}
+
 // MoveUp moves the cursor up by one.
 func (m Model) MoveUp() Model {
 	if len(m.items) == 0 {

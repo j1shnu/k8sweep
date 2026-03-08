@@ -83,6 +83,10 @@ type Model struct {
 	nsLoading      bool // true while fetching namespaces
 	nsSpinnerFrame int  // spinner animation frame for namespace loading
 
+	// Vim gg support: tracks pending 'g' keypress for go-to-top
+	pendingG     bool
+	pendingGTime time.Time
+
 	metricsAvailable bool                      // true if Metrics API is available
 	pendingMetrics   map[string]k8s.PodMetrics // buffered metrics awaiting pod data merge
 	lastMetrics      map[string]k8s.PodMetrics // last known metrics, reused until fresh metrics arrive
@@ -456,10 +460,28 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Up):
 		newModel := m
 		newModel.podList = m.podList.MoveUp()
+		newModel.pendingG = false
 		return newModel, nil
 	case key.Matches(msg, m.keys.Down):
 		newModel := m
 		newModel.podList = m.podList.MoveDown()
+		newModel.pendingG = false
+		return newModel, nil
+	case key.Matches(msg, m.keys.GoBottom):
+		newModel := m
+		newModel.podList = m.podList.GoBottom()
+		newModel.pendingG = false
+		return newModel, nil
+	case msg.String() == "g":
+		if m.pendingG && time.Since(m.pendingGTime) < 500*time.Millisecond {
+			newModel := m
+			newModel.podList = m.podList.GoTop()
+			newModel.pendingG = false
+			return newModel, nil
+		}
+		newModel := m
+		newModel.pendingG = true
+		newModel.pendingGTime = time.Now()
 		return newModel, nil
 	case key.Matches(msg, m.keys.Select):
 		newModel := m

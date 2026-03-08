@@ -6,6 +6,7 @@ import "github.com/charmbracelet/bubbles/key"
 type KeyMap struct {
 	Up          key.Binding
 	Down        key.Binding
+	GoBottom    key.Binding
 	Select      key.Binding
 	Delete      key.Binding
 	ForceDelete key.Binding
@@ -32,6 +33,10 @@ func DefaultKeyMap() KeyMap {
 		Down: key.NewBinding(
 			key.WithKeys("j", "down"),
 			key.WithHelp("j/↓", "move cursor down"),
+		),
+		GoBottom: key.NewBinding(
+			key.WithKeys("G"),
+			key.WithHelp("G", "go to last pod"),
 		),
 		Select: key.NewBinding(
 			key.WithKeys(" "),
@@ -101,8 +106,8 @@ func (k KeyMap) ShortHelp() []key.Binding {
 // FullHelp returns grouped keybindings for the full help view.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Select, k.SelectAll},
+		{k.Up, k.Down, k.GoBottom, k.Search, k.Select, k.SelectAll},
 		{k.Delete, k.ForceDelete, k.Refresh, k.Filter},
-		{k.Search, k.Sort, k.Info, k.Namespace, k.Help, k.Quit},
+		{k.Sort, k.Info, k.Namespace, k.Help, k.Quit},
 	}
 }
