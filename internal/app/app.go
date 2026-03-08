@@ -514,10 +514,19 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel.podDetail = m.podDetail.SetSize(m.width, m.height-common.HeaderHeight-1).SetLoading()
 		return newModel, newModel.fetchPodDetailCmd(pod.Namespace, pod.Name)
 	case key.Matches(msg, m.keys.Sort):
-		nextCol := podlist.NextSortColumn(m.podList.SortColumn(), m.podList.MetricsAvailable())
+		col := m.podList.SortColumn()
+		order := m.podList.SortOrder()
+		if order == podlist.SortAsc {
+			// First press on this column was asc → flip to desc
+			order = podlist.SortDesc
+		} else {
+			// Already desc → cycle to next column, reset to asc
+			col = podlist.NextSortColumn(col, m.podList.MetricsAvailable())
+			order = podlist.SortAsc
+		}
 		newModel := m
-		newModel.podList = m.podList.SetSort(nextCol, podlist.SortAsc)
-		newModel.statusMsg = "Sort: " + podlist.SortColumnLabel(nextCol) + " " + podlist.SortIndicator(podlist.SortAsc)
+		newModel.podList = m.podList.SetSort(col, order)
+		newModel.statusMsg = "Sort: " + podlist.SortColumnLabel(col) + " " + podlist.SortIndicator(order)
 		return newModel, nil
 	case key.Matches(msg, m.keys.Search):
 		return m.enterSearchMode()
