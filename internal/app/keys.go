@@ -69,7 +69,7 @@ func DefaultKeyMap() KeyMap {
 
 // ShortHelp returns the short help keybindings for the browsing state.
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Select, k.Delete, k.Namespace, k.Refresh, k.Filter, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Select, k.SelectAll, k.Delete, k.Namespace, k.Refresh, k.Filter, k.Quit}
 }
 
 // FullHelp returns grouped keybindings for the full help view.
