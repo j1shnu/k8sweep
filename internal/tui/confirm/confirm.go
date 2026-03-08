@@ -8,13 +8,23 @@ import (
 	"github.com/jprasad/k8sweep/internal/tui/styles"
 )
 
+// ActionType distinguishes normal delete from force delete.
+type ActionType int
+
+const (
+	ActionDelete      ActionType = iota
+	ActionForceDelete
+)
+
 // Model represents the deletion confirmation overlay.
 type Model struct {
-	podNames  []string
-	cursor    int // 0 = Yes, 1 = No
-	confirmed bool
-	cancelled bool
-	width     int
+	podNames   []string
+	warnings   []string   // e.g., "pod-x is standalone (no controller)"
+	actionType ActionType
+	cursor     int // 0 = Yes, 1 = No
+	confirmed  bool
+	cancelled  bool
+	width      int
 }
 
 // New creates a new confirmation overlay for the given pod names.
@@ -22,6 +32,16 @@ func New(podNames []string) Model {
 	return Model{
 		podNames: podNames,
 		cursor:   1, // Default to "No" for safety
+	}
+}
+
+// NewWithAction creates a confirmation overlay with action type and warnings.
+func NewWithAction(podNames []string, action ActionType, warnings []string) Model {
+	return Model{
+		podNames:   podNames,
+		warnings:   warnings,
+		actionType: action,
+		cursor:     1,
 	}
 }
 
@@ -33,38 +53,46 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		case "left", "right", "h", "l", "tab":
 			newCursor := 1 - m.cursor
 			return Model{
-				podNames:  m.podNames,
-				cursor:    newCursor,
-				confirmed: m.confirmed,
-				cancelled: m.cancelled,
-				width:     m.width,
+				podNames:   m.podNames,
+				warnings:   m.warnings,
+				actionType: m.actionType,
+				cursor:     newCursor,
+				confirmed:  m.confirmed,
+				cancelled:  m.cancelled,
+				width:      m.width,
 			}, nil
 
 		case "enter":
 			return Model{
-				podNames:  m.podNames,
-				cursor:    m.cursor,
-				confirmed: m.cursor == 0,
-				cancelled: m.cursor == 1,
-				width:     m.width,
+				podNames:   m.podNames,
+				warnings:   m.warnings,
+				actionType: m.actionType,
+				cursor:     m.cursor,
+				confirmed:  m.cursor == 0,
+				cancelled:  m.cursor == 1,
+				width:      m.width,
 			}, nil
 
 		case "y":
 			return Model{
-				podNames:  m.podNames,
-				cursor:    0,
-				confirmed: true,
-				cancelled: false,
-				width:     m.width,
+				podNames:   m.podNames,
+				warnings:   m.warnings,
+				actionType: m.actionType,
+				cursor:     0,
+				confirmed:  true,
+				cancelled:  false,
+				width:      m.width,
 			}, nil
 
 		case "esc", "n":
 			return Model{
-				podNames:  m.podNames,
-				cursor:    m.cursor,
-				confirmed: false,
-				cancelled: true,
-				width:     m.width,
+				podNames:   m.podNames,
+				warnings:   m.warnings,
+				actionType: m.actionType,
+				cursor:     m.cursor,
+				confirmed:  false,
+				cancelled:  true,
+				width:      m.width,
 			}, nil
 		}
 	}
@@ -77,11 +105,18 @@ func (m Model) IsConfirmed() bool { return m.confirmed }
 // IsCancelled returns true if the user cancelled.
 func (m Model) IsCancelled() bool { return m.cancelled }
 
+// ActionType returns the action type for this confirmation.
+func (m Model) Action() ActionType { return m.actionType }
+
 // View renders the confirmation overlay.
 func (m Model) View() string {
 	var b strings.Builder
 
-	b.WriteString(styles.ErrorMessage.Render("Delete these pods?"))
+	if m.actionType == ActionForceDelete {
+		b.WriteString(styles.ErrorMessage.Render("FORCE delete these pods? (bypasses graceful shutdown)"))
+	} else {
+		b.WriteString(styles.ErrorMessage.Render("Delete these pods?"))
+	}
 	b.WriteString("\n\n")
 
 	maxShow := 10
@@ -91,6 +126,15 @@ func (m Model) View() string {
 			break
 		}
 		b.WriteString(fmt.Sprintf("  • %s\n", name))
+	}
+
+	if len(m.warnings) > 0 {
+		b.WriteString("\n")
+		b.WriteString(styles.StatusMessage.Render("Warnings:"))
+		b.WriteString("\n")
+		for _, w := range m.warnings {
+			b.WriteString(fmt.Sprintf("  ⚠ %s\n", w))
+		}
 	}
 
 	b.WriteString("\n")

@@ -26,6 +26,12 @@ var dirtyStatuses = map[PodStatus]struct{}{
 	StatusOOMKilled:     {},
 }
 
+// PodMetrics holds CPU and memory usage for a single pod.
+type PodMetrics struct {
+	CPUMillicores int64
+	MemoryBytes   int64
+}
+
 // PodInfo holds the display-relevant information for a single pod.
 type PodInfo struct {
 	Name         string
@@ -34,6 +40,8 @@ type PodInfo struct {
 	Age          time.Duration
 	RestartCount int32
 	NodeName     string
+	OwnerRef     string      // e.g. "ReplicaSet/my-app-abc123", empty for standalone pods
+	Metrics      *PodMetrics // nil when metrics are unavailable
 }
 
 // IsDirty returns true if the pod's status is in the dirty set.

@@ -240,3 +240,80 @@ func TestTotalRestartCount(t *testing.T) {
 	}
 	assert.Equal(t, int32(8), totalRestartCount(pod))
 }
+
+// newFakeClientWithNamespaces creates a fake client with specific namespaces and pods.
+func newFakeClientWithNamespaces(namespaces []string, pods ...corev1.Pod) *Client {
+	cs := fake.NewSimpleClientset()
+	for _, ns := range namespaces {
+		_, _ = cs.CoreV1().Namespaces().Create(
+			context.Background(),
+			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}},
+			metav1.CreateOptions{},
+		)
+	}
+	for i := range pods {
+		_, _ = cs.CoreV1().Pods(pods[i].Namespace).Create(
+			context.Background(), &pods[i], metav1.CreateOptions{},
+		)
+	}
+	return NewClientFromClientset(cs, ClusterInfo{
+		ContextName: "test-context",
+		Namespace:   "default",
+		Server:      "https://localhost:6443",
+	})
+}
+
+func TestListPodsAllNamespaces_Basic(t *testing.T) {
+	client := newFakeClientWithNamespaces(
+		[]string{"default", "kube-system", "app"},
+		makePod("pod-1", "default", corev1.PodRunning, ""),
+		makePod("pod-2", "kube-system", corev1.PodRunning, ""),
+		makePod("pod-3", "app", corev1.PodFailed, ""),
+		makePod("pod-4", "app", corev1.PodRunning, ""),
+	)
+
+	pods, err := ListPodsAllNamespaces(context.Background(), client)
+	require.NoError(t, err)
+	assert.Len(t, pods, 4)
+
+	// Verify sorted by namespace then name
+	assert.Equal(t, "app", pods[0].Namespace)
+	assert.Equal(t, "pod-3", pods[0].Name)
+	assert.Equal(t, "app", pods[1].Namespace)
+	assert.Equal(t, "pod-4", pods[1].Name)
+	assert.Equal(t, "default", pods[2].Namespace)
+	assert.Equal(t, "kube-system", pods[3].Namespace)
+}
+
+func TestListPodsAllNamespaces_EmptyCluster(t *testing.T) {
+	client := newFakeClientWithNamespaces([]string{"default"})
+
+	pods, err := ListPodsAllNamespaces(context.Background(), client)
+	require.NoError(t, err)
+	assert.Empty(t, pods)
+}
+
+func TestListPodsAllNamespaces_ContextCancelled(t *testing.T) {
+	// The fake clientset doesn't honour cancelled contexts, so we verify
+	// that a cancelled context at least doesn't panic and returns gracefully.
+	client := newFakeClientWithNamespaces([]string{"default"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	// Should not panic; may or may not return error depending on fake client behavior
+	_, _ = ListPodsAllNamespaces(ctx, client)
+}
+
+func TestListPodsAllNamespaces_NoNamespaces(t *testing.T) {
+	// No namespaces created
+	cs := fake.NewSimpleClientset()
+	client := NewClientFromClientset(cs, ClusterInfo{
+		ContextName: "test-context",
+		Namespace:   "default",
+	})
+
+	pods, err := ListPodsAllNamespaces(context.Background(), client)
+	require.NoError(t, err)
+	assert.Empty(t, pods)
+}
