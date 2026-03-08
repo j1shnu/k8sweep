@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 // ClientConfig holds the configuration for creating a Kubernetes client.
@@ -20,8 +22,10 @@ type ClientConfig struct {
 
 // Client wraps a Kubernetes clientset and cluster metadata.
 type Client struct {
-	clientset   kubernetes.Interface
-	clusterInfo ClusterInfo
+	clientset        kubernetes.Interface
+	clusterInfo      ClusterInfo
+	metricsAvailable bool
+	metricsClient    *MetricsClient
 }
 
 // NewClient creates a new Kubernetes client from the provided config.
@@ -85,14 +89,27 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	return &Client{
+	c := &Client{
 		clientset: clientset,
 		clusterInfo: ClusterInfo{
 			ContextName: contextName,
 			Namespace:   namespace,
 			Server:      server,
 		},
-	}, nil
+	}
+
+	// Probe metrics API availability (3s timeout, non-blocking on failure)
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer probeCancel()
+	if CheckMetricsAvailable(probeCtx, c) {
+		mc, mcErr := metricsclient.NewForConfig(restConfig)
+		if mcErr == nil {
+			c.metricsAvailable = true
+			c.metricsClient = NewMetricsClient(mc)
+		}
+	}
+
+	return c, nil
 }
 
 // NewClientFromClientset creates a Client from an existing clientset (for testing).
@@ -111,6 +128,16 @@ func (c *Client) GetClusterInfo() ClusterInfo {
 // Clientset returns the underlying Kubernetes clientset.
 func (c *Client) Clientset() kubernetes.Interface {
 	return c.clientset
+}
+
+// MetricsAvailable returns true if the Metrics API is available in the cluster.
+func (c *Client) MetricsAvailable() bool {
+	return c.metricsAvailable
+}
+
+// GetMetricsClient returns the metrics client, or nil if metrics are unavailable.
+func (c *Client) GetMetricsClient() *MetricsClient {
+	return c.metricsClient
 }
 
 // ListNamespaces returns a sorted list of namespace names.

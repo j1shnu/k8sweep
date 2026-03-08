@@ -21,6 +21,12 @@ type NamespacesLoadedMsg struct {
 	Err        error
 }
 
+// MetricsLoadedMsg is sent when pod metrics have been fetched from the cluster.
+type MetricsLoadedMsg struct {
+	Metrics map[string]k8s.PodMetrics
+	FetchID uint64
+}
+
 // TickMsg triggers a periodic pod refresh.
 type TickMsg struct{}
 

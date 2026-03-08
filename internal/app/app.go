@@ -68,6 +68,10 @@ type Model struct {
 	height         int
 	nsLoading      bool // true while fetching namespaces
 	nsSpinnerFrame int  // spinner animation frame for namespace loading
+
+	metricsAvailable bool                      // true if Metrics API is available
+	pendingMetrics   map[string]k8s.PodMetrics // buffered metrics awaiting pod data merge
+	lastMetrics      map[string]k8s.PodMetrics // last known metrics, reused until fresh metrics arrive
 }
 
 // NewModel creates the initial application model.
@@ -78,22 +82,28 @@ func NewModel(client *k8s.Client) Model {
 	// Pre-assign the initial fetchID so Init can create a matching fetch command.
 	initialID := fetchSeq.Add(1)
 
+	metricsAvail := client.MetricsAvailable()
+
 	pl := podlist.New()
 	if info.Namespace == k8s.AllNamespaces {
 		pl = pl.SetShowNamespace(true)
 	}
+	if metricsAvail {
+		pl = pl.SetMetricsAvailable(true)
+	}
 
 	return Model{
-		client:     client,
-		keys:       keys,
-		state:      stateBrowsing,
-		namespace:  info.Namespace,
-		fetchID:    initialID,
-		header:     header.New(info.ContextName, info.Namespace),
-		podList:    pl,
-		footer:     footer.New(keys.ShortHelp()),
-		nsSwitcher: namespace.New(),
-		help:       help.New(keys.FullHelp()),
+		client:           client,
+		keys:             keys,
+		state:            stateBrowsing,
+		namespace:        info.Namespace,
+		fetchID:          initialID,
+		header:           header.New(info.ContextName, info.Namespace),
+		podList:          pl,
+		footer:           footer.New(keys.ShortHelp()),
+		nsSwitcher:       namespace.New(),
+		help:             help.New(keys.FullHelp()),
+		metricsAvailable: metricsAvail,
 	}
 }
 
@@ -115,7 +125,7 @@ func (m Model) Init() tea.Cmd {
 		pods, err := k8s.ListPods(ctx, client, ns)
 		return PodsLoadedMsg{Pods: pods, Err: err, FetchID: id}
 	}
-	return tea.Batch(fetchCmd, m.tickCmd(), loadingTickCmd())
+	return tea.Batch(fetchCmd, m.fetchMetricsCmd(), m.tickCmd(), loadingTickCmd())
 }
 
 // Update handles all messages.
@@ -126,6 +136,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PodsLoadedMsg:
 		return m.handlePodsLoaded(msg), nil
+
+	case MetricsLoadedMsg:
+		return m.handleMetricsLoaded(msg), nil
 
 	case PodsDeletedMsg:
 		return m.handlePodsDeleted(msg)
@@ -149,7 +162,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TickMsg:
 		if m.state == stateBrowsing {
-			return m, tea.Batch(m.fetchPodsCmd(), m.tickCmd())
+			return m, tea.Batch(m.fetchPodsCmd(), m.fetchMetricsCmd(), m.tickCmd())
 		}
 		return m, m.tickCmd()
 
@@ -233,6 +246,14 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 	}
 	// Always cache the full unfiltered list for client-side filter toggling
 	allPods := msg.Pods
+
+	// Merge metrics: prefer pending (arrived before pods), fall back to last known
+	if m.pendingMetrics != nil {
+		allPods = k8s.MergePodMetrics(allPods, m.pendingMetrics)
+	} else if m.lastMetrics != nil {
+		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
+	}
+
 	totalCount := len(allPods)
 	displayPods := allPods
 	if m.filter.ShowDirtyOnly {
@@ -240,6 +261,7 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 	}
 	newModel := m
 	newModel.allPods = allPods
+	newModel.pendingMetrics = nil
 	newModel.podList = m.podList.SetItems(displayPods)
 	newModel.totalPodCount = totalCount
 	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), totalCount))
@@ -249,6 +271,36 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 	} else {
 		newModel.statusMsg = ""
 	}
+	return newModel
+}
+
+func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
+	// Discard stale responses
+	if msg.FetchID != m.fetchID {
+		return m
+	}
+	if msg.Metrics == nil {
+		return m
+	}
+
+	newModel := m
+	newModel.lastMetrics = msg.Metrics
+
+	// If pods have already arrived, merge immediately
+	if m.allPods != nil {
+		allPods := k8s.MergePodMetrics(m.allPods, msg.Metrics)
+		displayPods := allPods
+		if m.filter.ShowDirtyOnly {
+			displayPods = k8s.FilterDirtyPods(allPods)
+		}
+		newModel.allPods = allPods
+		newModel.pendingMetrics = nil
+		newModel.podList = m.podList.SetItems(displayPods)
+		return newModel
+	}
+
+	// Pods haven't arrived yet — buffer metrics
+	newModel.pendingMetrics = msg.Metrics
 	return newModel
 }
 
@@ -366,7 +418,7 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel := m
 		newModel.podList = m.podList.SetLoading()
 		newModel.statusMsg = "Refreshing..."
-		return newModel, tea.Batch(newModel.fetchPodsCmd(), loadingTickCmd())
+		return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
 	case key.Matches(msg, m.keys.Filter):
 		newFilter := !m.filter.ShowDirtyOnly
 		newModel := m
@@ -389,7 +441,7 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// No cached data — must fetch
 		newModel.podList = m.podList.SetLoading()
 		newModel.header = m.header.SetFilter(newFilter, "")
-		return newModel, tea.Batch(newModel.fetchPodsCmd(), loadingTickCmd())
+		return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
 	}
 	return m, nil
 }
@@ -434,20 +486,22 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 	}
 	isAllNS := ns == k8s.AllNamespaces
 	newModel := Model{
-		client:     m.client,
-		keys:       m.keys,
-		state:      stateBrowsing,
-		filter:     m.filter,
-		namespace:  ns,
-		header:     m.header.SetNamespace(ns).SetFilter(m.filter.ShowDirtyOnly, ""),
-		podList:    m.podList.SetShowNamespace(isAllNS).SetItems(nil).SetLoading(),
-		footer:     m.footer,
-		confirm:    m.confirm,
-		nsSwitcher: m.nsSwitcher.Deactivate(),
-		width:      m.width,
-		height:     m.height,
+		client:           m.client,
+		keys:             m.keys,
+		state:            stateBrowsing,
+		filter:           m.filter,
+		namespace:        ns,
+		header:           m.header.SetNamespace(ns).SetFilter(m.filter.ShowDirtyOnly, ""),
+		podList:          m.podList.SetShowNamespace(isAllNS).SetItems(nil).SetLoading(),
+		footer:           m.footer,
+		confirm:          m.confirm,
+		nsSwitcher:       m.nsSwitcher.Deactivate(),
+		help:             m.help,
+		width:            m.width,
+		height:           m.height,
+		metricsAvailable: m.metricsAvailable,
 	}
-	return newModel, tea.Batch(newModel.fetchPodsCmd(), loadingTickCmd())
+	return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
 }
 
 // --- Command factories ---
@@ -470,6 +524,25 @@ func (m *Model) fetchPodsCmd() tea.Cmd {
 		defer cancel()
 		pods, err := k8s.ListPods(ctx, client, ns)
 		return PodsLoadedMsg{Pods: pods, Err: err, FetchID: id}
+	}
+}
+
+func (m Model) fetchMetricsCmd() tea.Cmd {
+	if !m.metricsAvailable {
+		return nil
+	}
+	id := m.fetchID
+	ns := m.namespace
+	mc := m.client.GetMetricsClient()
+	timeout := fetchTimeout
+	if ns == k8s.AllNamespaces {
+		timeout = fetchTimeoutAllNS
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		metrics := k8s.FetchPodMetrics(ctx, mc, ns)
+		return MetricsLoadedMsg{Metrics: metrics, FetchID: id}
 	}
 }
 

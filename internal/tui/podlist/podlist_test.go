@@ -198,3 +198,86 @@ func TestLoadingPreservedAcrossOperations(t *testing.T) {
 	m = m.SelectAll()
 	assert.True(t, m.loading)
 }
+
+func TestFormatCPU(t *testing.T) {
+	tests := []struct {
+		input    int64
+		expected string
+	}{
+		{0, "0m"},
+		{1, "1m"},
+		{250, "250m"},
+		{999, "999m"},
+		{1000, "1"},
+		{1500, "1.5"},
+		{2000, "2"},
+		{2345, "2.3"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, formatCPU(tt.input), "formatCPU(%d)", tt.input)
+	}
+}
+
+func TestFormatMemory(t *testing.T) {
+	tests := []struct {
+		input    int64
+		expected string
+	}{
+		{0, "0B"},
+		{512, "512B"},
+		{1024, "1Ki"},
+		{1024 * 1024, "1Mi"},
+		{128 * 1024 * 1024, "128Mi"},
+		{512 * 1024 * 1024, "512Mi"},
+		{1024 * 1024 * 1024, "1Gi"},
+		{int64(1.5 * 1024 * 1024 * 1024), "1.5Gi"},
+		{int64(2 * 1024 * 1024 * 1024), "2Gi"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, formatMemory(tt.input), "formatMemory(%d)", tt.input)
+	}
+}
+
+func TestMetricsAvailable_Preserved(t *testing.T) {
+	m := New().SetMetricsAvailable(true).SetItems(samplePods())
+	assert.True(t, m.metricsAvailable)
+
+	m = m.MoveDown()
+	assert.True(t, m.metricsAvailable)
+	m = m.ToggleSelect()
+	assert.True(t, m.metricsAvailable)
+	m = m.SelectAll()
+	assert.True(t, m.metricsAvailable)
+	m = m.DeselectAll()
+	assert.True(t, m.metricsAvailable)
+	m = m.SetSize(120, 10)
+	assert.True(t, m.metricsAvailable)
+	m = m.SetLoading()
+	assert.True(t, m.metricsAvailable)
+}
+
+func TestView_WithMetrics(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{
+			Name: "pod-1", Namespace: "default", Status: k8s.StatusRunning,
+			Metrics: &k8s.PodMetrics{CPUMillicores: 250, MemoryBytes: 128 * 1024 * 1024},
+		},
+		{
+			Name: "pod-2", Namespace: "default", Status: k8s.StatusFailed,
+		},
+	}
+	m := New().SetMetricsAvailable(true).SetItems(pods).SetSize(150, 10)
+	view := m.View()
+	assert.Contains(t, view, "cpu:")
+	assert.Contains(t, view, "mem:")
+	assert.Contains(t, view, "250m")
+	assert.Contains(t, view, "128Mi")
+	assert.Contains(t, view, "---")
+}
+
+func TestView_WithoutMetrics(t *testing.T) {
+	m := New().SetItems(samplePods()).SetSize(120, 10)
+	view := m.View()
+	assert.NotContains(t, view, "cpu:")
+	assert.NotContains(t, view, "mem:")
+}

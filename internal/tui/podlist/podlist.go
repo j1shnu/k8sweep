@@ -42,17 +42,18 @@ const factRotateInterval = 125
 
 // Model represents the interactive pod list component.
 type Model struct {
-	items         []k8s.PodInfo
-	cursor        int
-	selected      map[string]struct{} // key: "namespace/name"
-	width         int
-	height        int
-	offset        int // viewport scroll offset
-	loading       bool
-	spinnerFrame  int // current spinner animation frame index
-	factIndex     int // current fact message index
-	factTicks     int // ticks elapsed since last fact rotation
-	showNamespace bool // show namespace column (all-namespaces mode)
+	items            []k8s.PodInfo
+	cursor           int
+	selected         map[string]struct{} // key: "namespace/name"
+	width            int
+	height           int
+	offset           int  // viewport scroll offset
+	loading          bool
+	spinnerFrame     int  // current spinner animation frame index
+	factIndex        int  // current fact message index
+	factTicks        int  // ticks elapsed since last fact rotation
+	showNamespace    bool // show namespace column (all-namespaces mode)
+	metricsAvailable bool // show CPU/memory columns when metrics API is available
 }
 
 // New creates an empty pod list model.
@@ -77,16 +78,17 @@ func (m Model) IsLoading() bool {
 // SetLoading returns a new model in the loading state with a random fun fact.
 func (m Model) SetLoading() Model {
 	return Model{
-		items:         m.items,
-		cursor:        m.cursor,
-		selected:      m.selected,
-		width:         m.width,
-		height:        m.height,
-		offset:        m.offset,
-		loading:       true,
-		spinnerFrame:  0,
-		factIndex:     randomFactIndex(),
-		showNamespace: m.showNamespace,
+		items:            m.items,
+		cursor:           m.cursor,
+		selected:         m.selected,
+		width:            m.width,
+		height:           m.height,
+		offset:           m.offset,
+		loading:          true,
+		spinnerFrame:     0,
+		factIndex:        randomFactIndex(),
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
 	}
 }
 
@@ -113,33 +115,42 @@ func (m Model) SetShowNamespace(show bool) Model {
 	return newModel
 }
 
+// SetMetricsAvailable returns a new model that shows or hides the metrics columns.
+func (m Model) SetMetricsAvailable(available bool) Model {
+	newModel := m
+	newModel.metricsAvailable = available
+	return newModel
+}
+
 // SetItems returns a new model with the given pods, resetting cursor and selection.
 func (m Model) SetItems(pods []k8s.PodInfo) Model {
 	return Model{
-		items:         pods,
-		cursor:        0,
-		selected:      make(map[string]struct{}),
-		width:         m.width,
-		height:        m.height,
-		offset:        0,
-		loading:       false,
-		showNamespace: m.showNamespace,
+		items:            pods,
+		cursor:           0,
+		selected:         make(map[string]struct{}),
+		width:            m.width,
+		height:           m.height,
+		offset:           0,
+		loading:          false,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
 	}
 }
 
 // SetSize returns a new model with the updated dimensions.
 func (m Model) SetSize(width, height int) Model {
 	return Model{
-		items:          m.items,
-		cursor:         m.cursor,
-		selected:       m.selected,
-		width:          width,
-		height:         height,
-		offset:         m.offset,
-		loading:        m.loading,
-		spinnerFrame:  m.spinnerFrame,
-		factIndex:     m.factIndex,
-		showNamespace:  m.showNamespace,
+		items:            m.items,
+		cursor:           m.cursor,
+		selected:         m.selected,
+		width:            width,
+		height:           height,
+		offset:           m.offset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
 	}
 }
 
@@ -163,16 +174,17 @@ func (m Model) ToggleSelect() Model {
 		newSelected[key] = struct{}{}
 	}
 	return Model{
-		items:          m.items,
-		cursor:         m.cursor,
-		selected:       newSelected,
-		width:          m.width,
-		height:         m.height,
-		offset:         m.offset,
-		loading:        m.loading,
-		spinnerFrame:  m.spinnerFrame,
-		factIndex:     m.factIndex,
-		showNamespace:  m.showNamespace,
+		items:            m.items,
+		cursor:           m.cursor,
+		selected:         newSelected,
+		width:            m.width,
+		height:           m.height,
+		offset:           m.offset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
 	}
 }
 
@@ -183,32 +195,34 @@ func (m Model) SelectAll() Model {
 		newSelected[podKey(p)] = struct{}{}
 	}
 	return Model{
-		items:          m.items,
-		cursor:         m.cursor,
-		selected:       newSelected,
-		width:          m.width,
-		height:         m.height,
-		offset:         m.offset,
-		loading:        m.loading,
-		spinnerFrame:  m.spinnerFrame,
-		factIndex:     m.factIndex,
-		showNamespace:  m.showNamespace,
+		items:            m.items,
+		cursor:           m.cursor,
+		selected:         newSelected,
+		width:            m.width,
+		height:           m.height,
+		offset:           m.offset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
 	}
 }
 
 // DeselectAll deselects all items.
 func (m Model) DeselectAll() Model {
 	return Model{
-		items:          m.items,
-		cursor:         m.cursor,
-		selected:       make(map[string]struct{}),
-		width:          m.width,
-		height:         m.height,
-		offset:         m.offset,
-		loading:        m.loading,
-		spinnerFrame:  m.spinnerFrame,
-		factIndex:     m.factIndex,
-		showNamespace:  m.showNamespace,
+		items:            m.items,
+		cursor:           m.cursor,
+		selected:         make(map[string]struct{}),
+		width:            m.width,
+		height:           m.height,
+		offset:           m.offset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
 	}
 }
 
@@ -309,13 +323,24 @@ func (m Model) View() string {
 		age := formatAge(pod.Age)
 		name := pod.Name
 
+		metricsStr := ""
+		if m.metricsAvailable {
+			if pod.Metrics != nil {
+				cpu := styles.LoadingPrefix.Render(formatCPU(pod.Metrics.CPUMillicores))
+				mem := styles.LoadingPrefix.Render(formatMemory(pod.Metrics.MemoryBytes))
+				metricsStr = fmt.Sprintf("  cpu: %s  mem: %s", cpu, mem)
+			} else {
+				metricsStr = "  cpu: ---  mem: ---"
+			}
+		}
+
 		var line string
 		if m.showNamespace {
-			line = fmt.Sprintf("%s%s%-20s %-45s %s  %s  restarts: %d",
-				pointer, checkbox, pod.Namespace, name, status, age, pod.RestartCount)
+			line = fmt.Sprintf("%s%s%-20s %-45s %s  %s  restarts: %d%s",
+				pointer, checkbox, pod.Namespace, name, status, age, pod.RestartCount, metricsStr)
 		} else {
-			line = fmt.Sprintf("%s%s%-45s %s  %s  restarts: %d",
-				pointer, checkbox, name, status, age, pod.RestartCount)
+			line = fmt.Sprintf("%s%s%-45s %s  %s  restarts: %d%s",
+				pointer, checkbox, name, status, age, pod.RestartCount, metricsStr)
 		}
 
 		if isCursor {
@@ -329,6 +354,45 @@ func (m Model) View() string {
 	}
 
 	return b.String()
+}
+
+// formatCPU formats CPU millicores for display (e.g., "250m", "1.5").
+func formatCPU(millicores int64) string {
+	if millicores >= 1000 {
+		cores := float64(millicores) / 1000.0
+		if cores == float64(int64(cores)) {
+			return fmt.Sprintf("%d", int64(cores))
+		}
+		return fmt.Sprintf("%.1f", cores)
+	}
+	return fmt.Sprintf("%dm", millicores)
+}
+
+// formatMemory formats bytes for display (e.g., "128Mi", "2.1Gi").
+func formatMemory(bytes int64) string {
+	const (
+		ki = 1024
+		mi = 1024 * ki
+		gi = 1024 * mi
+	)
+	switch {
+	case bytes >= gi:
+		val := float64(bytes) / float64(gi)
+		if val == float64(int64(val)) {
+			return fmt.Sprintf("%dGi", int64(val))
+		}
+		return fmt.Sprintf("%.1fGi", val)
+	case bytes >= mi:
+		val := float64(bytes) / float64(mi)
+		if val == float64(int64(val)) {
+			return fmt.Sprintf("%dMi", int64(val))
+		}
+		return fmt.Sprintf("%.1fMi", val)
+	case bytes >= ki:
+		return fmt.Sprintf("%dKi", bytes/ki)
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
 }
 
 func formatAge(d time.Duration) string {
