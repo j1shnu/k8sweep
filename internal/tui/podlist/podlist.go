@@ -147,13 +147,52 @@ func (m Model) SetItems(pods []k8s.PodInfo) Model {
 // resetting cursor and selection (same as SetItems but applies current sort).
 func (m Model) SetItemsSorted(pods []k8s.PodInfo) Model {
 	sorted := sortPods(pods, m.sortColumn, m.sortOrder)
+
+	// Track the pod under cursor so we can follow it after re-sort
+	var cursorKey string
+	if len(m.items) > 0 && m.cursor < len(m.items) {
+		cursorKey = podKey(m.items[m.cursor])
+	}
+
+	newCursor := 0
+	for i, p := range sorted {
+		if podKey(p) == cursorKey {
+			newCursor = i
+			break
+		}
+	}
+
+	// Adjust offset so cursor stays visible
+	newOffset := m.offset
+	visibleRows := m.height
+	if visibleRows <= 0 {
+		visibleRows = 10
+	}
+	if newCursor < newOffset {
+		newOffset = newCursor
+	} else if newCursor >= newOffset+visibleRows {
+		newOffset = newCursor - visibleRows + 1
+	}
+
+	// Prune selection to only pods still present
+	newSelected := make(map[string]struct{}, len(m.selected))
+	presentKeys := make(map[string]struct{}, len(sorted))
+	for _, p := range sorted {
+		presentKeys[podKey(p)] = struct{}{}
+	}
+	for k := range m.selected {
+		if _, ok := presentKeys[k]; ok {
+			newSelected[k] = struct{}{}
+		}
+	}
+
 	return Model{
 		items:            sorted,
-		cursor:           0,
-		selected:         make(map[string]struct{}),
+		cursor:           newCursor,
+		selected:         newSelected,
 		width:            m.width,
 		height:           m.height,
-		offset:           0,
+		offset:           newOffset,
 		loading:          false,
 		showNamespace:    m.showNamespace,
 		metricsAvailable: m.metricsAvailable,

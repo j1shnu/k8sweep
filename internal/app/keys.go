@@ -4,20 +4,22 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all keybindings for the application.
 type KeyMap struct {
-	Up        key.Binding
-	Down      key.Binding
-	Select    key.Binding
-	Delete    key.Binding
-	Namespace key.Binding
-	Refresh   key.Binding
-	Filter    key.Binding
-	Sort      key.Binding
-	Info      key.Binding
-	Help      key.Binding
-	Quit      key.Binding
-	Confirm   key.Binding
-	Cancel    key.Binding
-	SelectAll key.Binding
+	Up          key.Binding
+	Down        key.Binding
+	Select      key.Binding
+	Delete      key.Binding
+	ForceDelete key.Binding
+	Namespace   key.Binding
+	Refresh     key.Binding
+	Filter      key.Binding
+	Search      key.Binding
+	Sort        key.Binding
+	Info        key.Binding
+	Help        key.Binding
+	Quit        key.Binding
+	Confirm     key.Binding
+	Cancel      key.Binding
+	SelectAll   key.Binding
 }
 
 // DefaultKeyMap returns the default keybindings.
@@ -39,6 +41,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "delete selected pods"),
 		),
+		ForceDelete: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "force delete selected pods"),
+		),
 		Namespace: key.NewBinding(
 			key.WithKeys("n"),
 			key.WithHelp("n", "switch namespace"),
@@ -50,6 +56,10 @@ func DefaultKeyMap() KeyMap {
 		Filter: key.NewBinding(
 			key.WithKeys("f"),
 			key.WithHelp("f", "toggle dirty-only filter"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search pods by name"),
 		),
 		Sort: key.NewBinding(
 			key.WithKeys("s"),
@@ -85,14 +95,14 @@ func DefaultKeyMap() KeyMap {
 // ShortHelp returns the short help keybindings for the footer bar.
 // Only essential action keys are shown; navigation/selection keys are in FullHelp (? view).
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Delete, k.Namespace, k.Filter, k.Sort, k.Info, k.Help, k.Quit}
+	return []key.Binding{k.Delete, k.ForceDelete, k.Search, k.Sort, k.Info, k.Help, k.Quit}
 }
 
 // FullHelp returns grouped keybindings for the full help view.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Select, k.SelectAll},
-		{k.Delete, k.Refresh, k.Filter, k.Sort},
-		{k.Info, k.Namespace, k.Help, k.Quit},
+		{k.Delete, k.ForceDelete, k.Refresh, k.Filter},
+		{k.Search, k.Sort, k.Info, k.Namespace, k.Help, k.Quit},
 	}
 }

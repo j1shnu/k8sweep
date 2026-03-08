@@ -40,6 +40,7 @@ type PodInfo struct {
 	Age          time.Duration
 	RestartCount int32
 	NodeName     string
+	OwnerRef     string      // e.g. "ReplicaSet/my-app-abc123", empty for standalone pods
 	Metrics      *PodMetrics // nil when metrics are unavailable
 }
 

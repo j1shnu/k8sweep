@@ -52,10 +52,19 @@ func (m Model) View() string {
 	}
 
 	b.WriteString("\n")
+	b.WriteString(styles.Title.Render("In Search"))
+	b.WriteString("\n")
+	b.WriteString("  " + styles.LoadingPrefix.Render("[type]") + "  " + styles.FooterHelp.Render("filter pods by name (real-time)") + "\n")
+	b.WriteString("  " + styles.LoadingPrefix.Render("[enter]") + "  " + styles.FooterHelp.Render("confirm search filter") + "\n")
+	b.WriteString("  " + styles.LoadingPrefix.Render("[esc]") + "  " + styles.FooterHelp.Render("cancel and clear search") + "\n")
+
+	b.WriteString("\n")
 	b.WriteString(styles.Title.Render("In Confirm Dialog"))
 	b.WriteString("\n")
 	b.WriteString("  " + styles.LoadingPrefix.Render("[y/n]") + "  " + styles.FooterHelp.Render("confirm or cancel") + "\n")
 	b.WriteString("  " + styles.LoadingPrefix.Render("[esc]") + "  " + styles.FooterHelp.Render("cancel") + "\n")
+	b.WriteString("  " + styles.FooterHelp.Render("force delete (x) bypasses graceful shutdown") + "\n")
+	b.WriteString("  " + styles.FooterHelp.Render("standalone pods (no controller) show a warning") + "\n")
 
 	b.WriteString("\n")
 	b.WriteString(styles.Title.Render("In Pod Detail"))

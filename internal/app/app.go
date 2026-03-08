@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jprasad/k8sweep/internal/k8s"
 	"github.com/jprasad/k8sweep/internal/tui/common"
@@ -30,13 +32,13 @@ const (
 	stateSwitchingNamespace
 	stateHelp
 	stateViewingDetail
+	stateSearching
 )
 
 const (
-	pollInterval      = 10 * time.Second
-	pollIntervalAllNS = 60 * time.Second
 	fetchTimeout      = 15 * time.Second
 	fetchTimeoutAllNS = 120 * time.Second
+	metricsInterval   = 30 * time.Second
 )
 
 // fetchSeq is a global atomic counter used to tag pod fetch requests.
@@ -55,6 +57,10 @@ type Model struct {
 	// Responses with a different ID are discarded as stale.
 	fetchID uint64
 
+	// watcher provides real-time pod updates via the Kubernetes watch API.
+	watcher *k8s.PodWatcher
+	watchID uint64 // incremented on each new watcher to discard stale events
+
 	header       header.Model
 	podList      podlist.Model
 	footer       footer.Model
@@ -63,6 +69,10 @@ type Model struct {
 	help         help.Model
 	podDetail    poddetail.Model
 	detailPodKey string // tracks which pod's detail was requested
+
+	// Search
+	searchInput textinput.Model
+	searchQuery string // active name filter (empty = no filter)
 
 	allPods        []k8s.PodInfo // cached full pod list for client-side filtering
 	totalPodCount  int
@@ -96,12 +106,16 @@ func NewModel(client *k8s.Client) Model {
 		pl = pl.SetMetricsAvailable(true)
 	}
 
+	watcher := k8s.NewPodWatcher(client.Clientset(), info.Namespace)
+
 	return Model{
 		client:           client,
 		keys:             keys,
 		state:            stateBrowsing,
 		namespace:        info.Namespace,
 		fetchID:          initialID,
+		watcher:          watcher,
+		watchID:          1,
 		header:           header.New(info.ContextName, info.Namespace),
 		podList:          pl,
 		footer:           footer.New(keys.ShortHelp()),
@@ -111,9 +125,12 @@ func NewModel(client *k8s.Client) Model {
 	}
 }
 
-// Init starts the initial commands.
-// Uses the pre-assigned fetchID from NewModel to avoid the value-receiver copy problem.
+// Init starts the watcher, metrics polling, and loading animation.
 func (m Model) Init() tea.Cmd {
+	if m.watcher != nil {
+		return tea.Batch(m.startAndWatchCmd(), m.fetchMetricsCmd(), m.tickCmd(), loadingTickCmd())
+	}
+	// Fallback for environments without a watcher (e.g., tests)
 	id := m.fetchID
 	ns := m.namespace
 	client := m.client
@@ -137,6 +154,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.handleResize(msg), nil
+
+	case WatchPodsMsg:
+		return m.handleWatchPods(msg)
+
+	case WatchStoppedMsg:
+		// Old watcher stopped (namespace switch); ignore
+		return m, nil
 
 	case PodsLoadedMsg:
 		return m.handlePodsLoaded(msg), nil
@@ -168,8 +192,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case TickMsg:
+		// Metrics-only tick (pod updates come from watcher)
 		if m.state == stateBrowsing {
-			return m, tea.Batch(m.fetchPodsCmd(), m.fetchMetricsCmd(), m.tickCmd())
+			return m, tea.Batch(m.fetchMetricsCmd(), m.tickCmd())
 		}
 		return m, m.tickCmd()
 
@@ -178,8 +203,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Pass non-key messages to active sub-component
-	if m.state == stateSwitchingNamespace {
+	switch m.state {
+	case stateSwitchingNamespace:
 		return m.updateNSSwitcher(msg)
+	case stateSearching:
+		return m.handleSearchMsg(msg)
 	}
 
 	return m, nil
@@ -210,6 +238,15 @@ func (m Model) View() string {
 		return m.header.View() + "\n" +
 			m.nsSwitcher.View() + "\n"
 
+	case stateSearching:
+		status := ""
+		if m.err != nil {
+			status = "\n Error: " + m.err.Error()
+		}
+		return m.header.View() + "\n" +
+			m.podList.View() + status + "\n" +
+			m.searchInput.View() + "\n"
+
 	default:
 		status := ""
 		if m.nsLoading {
@@ -222,8 +259,12 @@ func (m Model) View() string {
 		if m.err != nil {
 			status = "\n Error: " + m.err.Error()
 		}
+		searchHint := ""
+		if m.searchQuery != "" {
+			searchHint = "\n " + styles.FilterBadge.Render(" SEARCH ") + " " + m.searchQuery
+		}
 		return m.header.View() + "\n" +
-			m.podList.View() + status + "\n" +
+			m.podList.View() + searchHint + status + "\n" +
 			m.footer.View() + "\n"
 	}
 }
@@ -247,6 +288,30 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	return newModel
 }
 
+func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
+	if msg.WatchID != m.watchID {
+		return m, nil // stale event from old watcher
+	}
+
+	allPods := msg.Pods
+	if m.lastMetrics != nil {
+		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
+	}
+
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+	totalCount := len(allPods)
+
+	newModel := m
+	newModel.allPods = allPods
+	newModel.podList = m.podList.SetItemsSorted(displayPods)
+	newModel.totalPodCount = totalCount
+	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), totalCount))
+	newModel.err = nil
+	newModel.statusMsg = ""
+
+	return newModel, m.watchPodsCmd()
+}
+
 func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 	// Discard stale responses from a previous fetch
 	if msg.FetchID != m.fetchID {
@@ -257,21 +322,17 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 		newModel.err = msg.Err
 		return newModel
 	}
-	// Always cache the full unfiltered list for client-side filter toggling
 	allPods := msg.Pods
 
-	// Merge metrics: prefer pending (arrived before pods), fall back to last known
 	if m.pendingMetrics != nil {
 		allPods = k8s.MergePodMetrics(allPods, m.pendingMetrics)
 	} else if m.lastMetrics != nil {
 		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
 	}
 
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
 	totalCount := len(allPods)
-	displayPods := allPods
-	if m.filter.ShowDirtyOnly {
-		displayPods = k8s.FilterDirtyPods(allPods)
-	}
+
 	newModel := m
 	newModel.allPods = allPods
 	newModel.pendingMetrics = nil
@@ -288,7 +349,6 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 }
 
 func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
-	// Discard stale responses
 	if msg.FetchID != m.fetchID {
 		return m
 	}
@@ -299,20 +359,15 @@ func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
 	newModel := m
 	newModel.lastMetrics = msg.Metrics
 
-	// If pods have already arrived, merge immediately
 	if m.allPods != nil {
 		allPods := k8s.MergePodMetrics(m.allPods, msg.Metrics)
-		displayPods := allPods
-		if m.filter.ShowDirtyOnly {
-			displayPods = k8s.FilterDirtyPods(allPods)
-		}
+		displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
 		newModel.allPods = allPods
 		newModel.pendingMetrics = nil
 		newModel.podList = m.podList.SetItemsSorted(displayPods)
 		return newModel
 	}
 
-	// Pods haven't arrived yet — buffer metrics
 	newModel.pendingMetrics = msg.Metrics
 	return newModel
 }
@@ -332,7 +387,12 @@ func (m Model) handlePodsDeleted(msg PodsDeletedMsg) (Model, tea.Cmd) {
 	} else {
 		newModel.statusMsg = ""
 	}
-	return newModel, newModel.fetchPodsCmd()
+	// Watcher will detect the deletions automatically.
+	// Fallback fetch for environments without a watcher.
+	if m.watcher == nil {
+		return newModel, newModel.fetchPodsCmd()
+	}
+	return newModel, nil
 }
 
 func (m Model) handleNamespacesLoaded(msg NamespacesLoadedMsg) Model {
@@ -354,6 +414,9 @@ func (m Model) handleNamespacesLoaded(msg NamespacesLoadedMsg) Model {
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 	// Global quit
 	if key.Matches(msg, m.keys.Quit) && (m.state == stateBrowsing || m.state == stateHelp) {
+		if m.watcher != nil {
+			m.watcher.Stop()
+		}
 		return m, tea.Quit
 	}
 
@@ -368,6 +431,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleHelpKey(msg)
 	case stateViewingDetail:
 		return m.handleDetailKey(msg)
+	case stateSearching:
+		return m.handleSearchKey(msg)
 	}
 	return m, nil
 }
@@ -409,20 +474,9 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return newModel, nil
 	case key.Matches(msg, m.keys.Delete):
-		selected := m.podList.GetSelected()
-		if len(selected) == 0 {
-			newModel := m
-			newModel.statusMsg = "No pods selected"
-			return newModel, nil
-		}
-		names := make([]string, len(selected))
-		for i, p := range selected {
-			names[i] = p.Namespace + "/" + p.Name
-		}
-		newModel := m
-		newModel.confirm = confirm.New(names)
-		newModel.state = stateConfirming
-		return newModel, nil
+		return m.enterConfirmDelete(confirm.ActionDelete)
+	case key.Matches(msg, m.keys.ForceDelete):
+		return m.enterConfirmDelete(confirm.ActionForceDelete)
 	case key.Matches(msg, m.keys.Namespace):
 		newModel := m
 		newModel.nsLoading = true
@@ -431,6 +485,21 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return newModel, tea.Batch(newModel.fetchNamespacesCmd(), loadingTickCmd())
 	case key.Matches(msg, m.keys.Refresh):
 		newModel := m
+		if m.watcher != nil {
+			// Read from watcher cache for instant refresh
+			pods := m.watcher.ListPods()
+			allPods := pods
+			if m.lastMetrics != nil {
+				allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
+			}
+			displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+			newModel.allPods = allPods
+			newModel.totalPodCount = len(allPods)
+			newModel.podList = m.podList.SetItemsSorted(displayPods)
+			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods)))
+			newModel.statusMsg = "Refreshed"
+			return newModel, m.fetchMetricsCmd()
+		}
 		newModel.podList = m.podList.SetLoading()
 		newModel.statusMsg = "Refreshing..."
 		return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
@@ -450,6 +519,8 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel.podList = m.podList.SetSort(nextCol, podlist.SortAsc)
 		newModel.statusMsg = "Sort: " + podlist.SortColumnLabel(nextCol) + " " + podlist.SortIndicator(podlist.SortAsc)
 		return newModel, nil
+	case key.Matches(msg, m.keys.Search):
+		return m.enterSearchMode()
 	case key.Matches(msg, m.keys.Filter):
 		newFilter := !m.filter.ShowDirtyOnly
 		newModel := m
@@ -459,22 +530,41 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		} else {
 			newModel.statusMsg = "Filter: showing all pods"
 		}
-		// Use cached pods if available — no API call needed
 		if m.allPods != nil {
-			displayPods := m.allPods
-			if newFilter {
-				displayPods = k8s.FilterDirtyPods(m.allPods)
-			}
+			displayPods := applyFilters(m.allPods, newModel.filter, m.activeSearchQuery())
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
 			newModel.header = m.header.SetFilter(newFilter, buildPodCountLabel(newFilter, len(displayPods), len(m.allPods)))
 			return newModel, nil
 		}
-		// No cached data — must fetch
 		newModel.podList = m.podList.SetLoading()
 		newModel.header = m.header.SetFilter(newFilter, "")
 		return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
 	}
 	return m, nil
+}
+
+// enterConfirmDelete enters the confirm dialog for delete or force delete.
+func (m Model) enterConfirmDelete(action confirm.ActionType) (Model, tea.Cmd) {
+	selected := m.podList.GetSelected()
+	if len(selected) == 0 {
+		newModel := m
+		newModel.statusMsg = "No pods selected"
+		return newModel, nil
+	}
+
+	names := make([]string, len(selected))
+	var warnings []string
+	for i, p := range selected {
+		names[i] = p.Namespace + "/" + p.Name
+		if p.OwnerRef == "" {
+			warnings = append(warnings, p.Name+" is standalone (no controller — delete is permanent)")
+		}
+	}
+
+	newModel := m
+	newModel.confirm = confirm.NewWithAction(names, action, warnings)
+	newModel.state = stateConfirming
+	return newModel, nil
 }
 
 func (m Model) handleConfirmingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -484,6 +574,10 @@ func (m Model) handleConfirmingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if newConfirm.IsConfirmed() {
 		pods := m.podList.GetSelected()
 		newModel.state = stateBrowsing
+		if newConfirm.Action() == confirm.ActionForceDelete {
+			newModel.statusMsg = "Force deleting..."
+			return newModel, newModel.forceDeletePodsCmd(pods)
+		}
 		newModel.statusMsg = "Deleting..."
 		return newModel, newModel.deletePodsCmd(pods)
 	}
@@ -495,7 +589,80 @@ func (m Model) handleConfirmingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return newModel, cmd
 }
 
-// updateNSSwitcher delegates to the namespace switcher and handles its outcomes.
+// --- Search ---
+
+func (m Model) enterSearchMode() (Model, tea.Cmd) {
+	ti := textinput.New()
+	ti.Placeholder = "type to filter pods by name..."
+	ti.Prompt = "/ "
+	ti.CharLimit = 100
+	if m.searchQuery != "" {
+		ti.SetValue(m.searchQuery)
+	}
+	cmd := ti.Focus()
+
+	newModel := m
+	newModel.state = stateSearching
+	newModel.searchInput = ti
+	return newModel, cmd
+}
+
+func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		newModel := m
+		newModel.state = stateBrowsing
+		newModel.searchQuery = m.searchInput.Value()
+		// Re-apply filters with confirmed search
+		if m.allPods != nil {
+			displayPods := applyFilters(m.allPods, m.filter, newModel.searchQuery)
+			newModel.podList = m.podList.SetItemsSorted(displayPods)
+		}
+		if newModel.searchQuery != "" {
+			newModel.statusMsg = "Search: " + newModel.searchQuery
+		} else {
+			newModel.statusMsg = ""
+		}
+		return newModel, nil
+
+	case "esc":
+		newModel := m
+		newModel.state = stateBrowsing
+		newModel.searchQuery = ""
+		// Clear search filter
+		if m.allPods != nil {
+			displayPods := applyFilters(m.allPods, m.filter, "")
+			newModel.podList = m.podList.SetItemsSorted(displayPods)
+		}
+		newModel.statusMsg = ""
+		return newModel, nil
+	}
+
+	// Pass to textinput
+	newInput, cmd := m.searchInput.Update(msg)
+	newModel := m
+	newModel.searchInput = newInput
+
+	// Real-time filter as you type
+	query := newInput.Value()
+	if m.allPods != nil {
+		displayPods := applyFilters(m.allPods, m.filter, query)
+		newModel.podList = m.podList.SetItemsSorted(displayPods)
+	}
+
+	return newModel, cmd
+}
+
+// handleSearchMsg handles non-key messages (like blink) while in search mode.
+func (m Model) handleSearchMsg(msg tea.Msg) (Model, tea.Cmd) {
+	newInput, cmd := m.searchInput.Update(msg)
+	newModel := m
+	newModel.searchInput = newInput
+	return newModel, cmd
+}
+
+// --- Namespace switcher ---
+
 func (m Model) updateNSSwitcher(msg tea.Msg) (Model, tea.Cmd) {
 	newNS, cmd := m.nsSwitcher.Update(msg)
 	newModel := m
@@ -511,17 +678,28 @@ func (m Model) updateNSSwitcher(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
-	// Map the "All Namespaces" label back to the sentinel value
 	if ns == namespace.AllNamespacesLabel {
 		ns = k8s.AllNamespaces
 	}
 	isAllNS := ns == k8s.AllNamespaces
+
+	// Stop old watcher
+	if m.watcher != nil {
+		m.watcher.Stop()
+	}
+
+	// Create new watcher for the new namespace
+	newWatcher := k8s.NewPodWatcher(m.client.Clientset(), ns)
+	newWatchID := m.watchID + 1
+
 	newModel := Model{
 		client:           m.client,
 		keys:             m.keys,
 		state:            stateBrowsing,
 		filter:           m.filter,
 		namespace:        ns,
+		watcher:          newWatcher,
+		watchID:          newWatchID,
 		header:           m.header.SetNamespace(ns).SetFilter(m.filter.ShowDirtyOnly, ""),
 		podList:          m.podList.SetShowNamespace(isAllNS).SetItems(nil).SetLoading(),
 		footer:           m.footer,
@@ -533,13 +711,79 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		height:           m.height,
 		metricsAvailable: m.metricsAvailable,
 	}
-	return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
+	return newModel, tea.Batch(newModel.startAndWatchCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
+}
+
+// --- Pod detail ---
+
+func (m Model) handlePodDetailLoaded(msg PodDetailLoadedMsg) Model {
+	if m.state != stateViewingDetail || msg.PodKey != m.detailPodKey {
+		return m
+	}
+	newModel := m
+	if msg.Err != nil {
+		newModel.podDetail = m.podDetail.SetError(msg.Err.Error())
+	} else {
+		newModel.podDetail = m.podDetail.SetDetail(msg.Detail)
+	}
+	return newModel
+}
+
+func (m Model) handleDetailKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Info) || msg.String() == "esc":
+		newModel := m
+		newModel.state = stateBrowsing
+		newModel.podDetail = m.podDetail.Hide()
+		return newModel, nil
+	case msg.String() == "j" || msg.String() == "down":
+		newModel := m
+		newModel.podDetail = m.podDetail.ScrollDown()
+		return newModel, nil
+	case msg.String() == "k" || msg.String() == "up":
+		newModel := m
+		newModel.podDetail = m.podDetail.ScrollUp()
+		return newModel, nil
+	}
+	return m, nil
 }
 
 // --- Command factories ---
 
-// fetchPodsCmd creates a command that fetches pods. Uses a sequence number
-// to allow the receiver to discard stale responses from previous fetches.
+// startAndWatchCmd starts the watcher and waits for the first event.
+func (m Model) startAndWatchCmd() tea.Cmd {
+	if m.watcher == nil {
+		return nil
+	}
+	watcher := m.watcher
+	id := m.watchID
+	return func() tea.Msg {
+		watcher.Start()
+		pods, ok := <-watcher.Events()
+		if !ok {
+			return WatchStoppedMsg{WatchID: id}
+		}
+		return WatchPodsMsg{Pods: pods, WatchID: id}
+	}
+}
+
+// watchPodsCmd waits for the next event from the watcher.
+func (m Model) watchPodsCmd() tea.Cmd {
+	if m.watcher == nil {
+		return nil
+	}
+	ch := m.watcher.Events()
+	id := m.watchID
+	return func() tea.Msg {
+		pods, ok := <-ch
+		if !ok {
+			return WatchStoppedMsg{WatchID: id}
+		}
+		return WatchPodsMsg{Pods: pods, WatchID: id}
+	}
+}
+
+// fetchPodsCmd creates a command that fetches pods (used for manual refresh fallback).
 func (m *Model) fetchPodsCmd() tea.Cmd {
 	id := fetchSeq.Add(1)
 	m.fetchID = id
@@ -588,6 +832,16 @@ func (m Model) deletePodsCmd(pods []k8s.PodInfo) tea.Cmd {
 	}
 }
 
+func (m Model) forceDeletePodsCmd(pods []k8s.PodInfo) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		results := k8s.ForceDeletePods(ctx, client, pods)
+		return PodsDeletedMsg{Results: results}
+	}
+}
+
 func (m Model) fetchNamespacesCmd() tea.Cmd {
 	client := m.client
 	return func() tea.Msg {
@@ -596,39 +850,6 @@ func (m Model) fetchNamespacesCmd() tea.Cmd {
 		ns, err := client.ListNamespaces(ctx)
 		return NamespacesLoadedMsg{Namespaces: ns, Err: err}
 	}
-}
-
-func (m Model) handlePodDetailLoaded(msg PodDetailLoadedMsg) Model {
-	// Discard stale responses (namespace switched or different pod requested)
-	if m.state != stateViewingDetail || msg.PodKey != m.detailPodKey {
-		return m
-	}
-	newModel := m
-	if msg.Err != nil {
-		newModel.podDetail = m.podDetail.SetError(msg.Err.Error())
-	} else {
-		newModel.podDetail = m.podDetail.SetDetail(msg.Detail)
-	}
-	return newModel
-}
-
-func (m Model) handleDetailKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, m.keys.Info) || msg.String() == "esc":
-		newModel := m
-		newModel.state = stateBrowsing
-		newModel.podDetail = m.podDetail.Hide()
-		return newModel, nil
-	case msg.String() == "j" || msg.String() == "down":
-		newModel := m
-		newModel.podDetail = m.podDetail.ScrollDown()
-		return newModel, nil
-	case msg.String() == "k" || msg.String() == "up":
-		newModel := m
-		newModel.podDetail = m.podDetail.ScrollUp()
-		return newModel, nil
-	}
-	return m, nil
 }
 
 func (m Model) fetchPodDetailCmd(namespace, name string) tea.Cmd {
@@ -643,31 +864,59 @@ func (m Model) fetchPodDetailCmd(namespace, name string) tea.Cmd {
 }
 
 func (m Model) tickCmd() tea.Cmd {
-	interval := pollInterval
-	if m.namespace == k8s.AllNamespaces {
-		interval = pollIntervalAllNS
-	}
-	return tea.Tick(interval, func(time.Time) tea.Msg {
+	return tea.Tick(metricsInterval, func(time.Time) tea.Msg {
 		return TickMsg{}
 	})
 }
 
 const loadingTickInterval = 80 * time.Millisecond
 
-// nsSpinnerFrames are the animation frames for the namespace loading spinner.
 var nsSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// loadingTickCmd sends a LoadingTickMsg after a short interval for spinner animation.
 func loadingTickCmd() tea.Cmd {
 	return tea.Tick(loadingTickInterval, func(time.Time) tea.Msg {
 		return LoadingTickMsg{}
 	})
 }
 
-// buildPodCountLabel returns a label like "3/10 dirty pods" when filter is active.
+// --- Helpers ---
+
 func buildPodCountLabel(filterActive bool, shown, total int) string {
 	if !filterActive {
 		return ""
 	}
 	return fmt.Sprintf("%d/%d dirty pods", shown, total)
+}
+
+// activeSearchQuery returns the current search text — from the input field
+// when actively searching, or from the confirmed query otherwise.
+func (m Model) activeSearchQuery() string {
+	if m.state == stateSearching {
+		return m.searchInput.Value()
+	}
+	return m.searchQuery
+}
+
+// applyFilters applies dirty filter and name search to a pod list.
+func applyFilters(pods []k8s.PodInfo, filter k8s.ResourceFilter, searchQuery string) []k8s.PodInfo {
+	result := pods
+	if filter.ShowDirtyOnly {
+		result = k8s.FilterDirtyPods(result)
+	}
+	if searchQuery != "" {
+		result = filterByName(result, searchQuery)
+	}
+	return result
+}
+
+// filterByName returns pods whose name contains the query (case-insensitive).
+func filterByName(pods []k8s.PodInfo, query string) []k8s.PodInfo {
+	q := strings.ToLower(query)
+	filtered := make([]k8s.PodInfo, 0, len(pods))
+	for _, p := range pods {
+		if strings.Contains(strings.ToLower(p.Name), q) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }

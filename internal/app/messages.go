@@ -9,6 +9,17 @@ type PodsLoadedMsg struct {
 	FetchID uint64
 }
 
+// WatchPodsMsg is sent when the pod watcher delivers a debounced update.
+type WatchPodsMsg struct {
+	Pods    []k8s.PodInfo
+	WatchID uint64
+}
+
+// WatchStoppedMsg is sent when the pod watcher's channel closes.
+type WatchStoppedMsg struct {
+	WatchID uint64
+}
+
 // PodsDeletedMsg is sent after a batch delete operation completes.
 // Individual errors are captured per-DeleteResult.
 type PodsDeletedMsg struct {
@@ -34,7 +45,7 @@ type PodDetailLoadedMsg struct {
 	PodKey string // "namespace/name" to detect stale responses
 }
 
-// TickMsg triggers a periodic pod refresh.
+// TickMsg triggers periodic metrics refresh.
 type TickMsg struct{}
 
 // LoadingTickMsg triggers a spinner/fact rotation while loading.

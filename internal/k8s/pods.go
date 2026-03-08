@@ -104,6 +104,11 @@ func DeletePods(ctx context.Context, client *Client, pods []PodInfo) []DeleteRes
 
 // mapPodToInfo maps a Kubernetes Pod to the domain PodInfo type.
 func mapPodToInfo(pod corev1.Pod) PodInfo {
+	owner := ""
+	if len(pod.OwnerReferences) > 0 {
+		ref := pod.OwnerReferences[0]
+		owner = ref.Kind + "/" + ref.Name
+	}
 	return PodInfo{
 		Name:         pod.Name,
 		Namespace:    pod.Namespace,
@@ -111,7 +116,36 @@ func mapPodToInfo(pod corev1.Pod) PodInfo {
 		Age:          time.Since(pod.CreationTimestamp.Time),
 		RestartCount: totalRestartCount(pod),
 		NodeName:     pod.Spec.NodeName,
+		OwnerRef:     owner,
 	}
+}
+
+// ForceDeletePods deletes the given pods with GracePeriodSeconds=0,
+// bypassing graceful shutdown. Used for stuck Terminating pods.
+func ForceDeletePods(ctx context.Context, client *Client, pods []PodInfo) []DeleteResult {
+	var zero int64
+	results := make([]DeleteResult, 0, len(pods))
+	for _, pod := range pods {
+		if err := ctx.Err(); err != nil {
+			results = append(results, DeleteResult{
+				PodName:   pod.Name,
+				Namespace: pod.Namespace,
+				Success:   false,
+				Error:     err,
+			})
+			continue
+		}
+		err := client.Clientset().CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
+			GracePeriodSeconds: &zero,
+		})
+		results = append(results, DeleteResult{
+			PodName:   pod.Name,
+			Namespace: pod.Namespace,
+			Success:   err == nil,
+			Error:     err,
+		})
+	}
+	return results
 }
 
 // derivePodStatus determines the display status from the Kubernetes pod object.
