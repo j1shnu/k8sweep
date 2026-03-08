@@ -23,3 +23,6 @@ type NamespacesLoadedMsg struct {
 
 // TickMsg triggers a periodic pod refresh.
 type TickMsg struct{}
+
+// LoadingTickMsg triggers a spinner/fact rotation while loading.
+type LoadingTickMsg struct{}

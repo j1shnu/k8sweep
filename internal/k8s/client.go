@@ -74,6 +74,12 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		return nil, fmt.Errorf("failed to create rest config: %w", err)
 	}
 
+	// Increase QPS and burst to support parallel per-namespace fetches
+	// in all-namespaces mode. Defaults (QPS=5, Burst=10) cause client-side
+	// throttling when multiple goroutines make concurrent API calls.
+	restConfig.QPS = 50
+	restConfig.Burst = 100
+
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)

@@ -16,6 +16,7 @@ import (
 	"github.com/jprasad/k8sweep/internal/tui/header"
 	"github.com/jprasad/k8sweep/internal/tui/namespace"
 	"github.com/jprasad/k8sweep/internal/tui/podlist"
+	"github.com/jprasad/k8sweep/internal/tui/styles"
 )
 
 // appState represents the current UI state.
@@ -27,7 +28,12 @@ const (
 	stateSwitchingNamespace
 )
 
-const pollInterval = 10 * time.Second
+const (
+	pollInterval      = 10 * time.Second
+	pollIntervalAllNS = 60 * time.Second
+	fetchTimeout      = 15 * time.Second
+	fetchTimeoutAllNS = 120 * time.Second
+)
 
 // fetchSeq is a global atomic counter used to tag pod fetch requests.
 // Stale responses (from a previous fetch) are discarded by comparing sequence numbers.
@@ -51,11 +57,14 @@ type Model struct {
 	confirm    confirm.Model
 	nsSwitcher namespace.Model
 
-	totalPodCount int
-	statusMsg     string
-	err           error
-	width         int
-	height        int
+	allPods        []k8s.PodInfo // cached full pod list for client-side filtering
+	totalPodCount  int
+	statusMsg      string
+	err            error
+	width          int
+	height         int
+	nsLoading      bool // true while fetching namespaces
+	nsSpinnerFrame int  // spinner animation frame for namespace loading
 }
 
 // NewModel creates the initial application model.
@@ -91,12 +100,18 @@ func (m Model) Init() tea.Cmd {
 	ns := m.namespace
 	client := m.client
 	fetchCmd := func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if ns == k8s.AllNamespaces {
+			ctx, cancel := context.WithTimeout(context.Background(), fetchTimeoutAllNS)
+			defer cancel()
+			pods, err := k8s.ListPodsAllNamespaces(ctx, client)
+			return PodsLoadedMsg{Pods: pods, Err: err, FetchID: id}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
 		pods, err := k8s.ListPods(ctx, client, ns)
 		return PodsLoadedMsg{Pods: pods, Err: err, FetchID: id}
 	}
-	return tea.Batch(fetchCmd, m.tickCmd())
+	return tea.Batch(fetchCmd, m.tickCmd(), loadingTickCmd())
 }
 
 // Update handles all messages.
@@ -113,6 +128,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case NamespacesLoadedMsg:
 		return m.handleNamespacesLoaded(msg), nil
+
+	case LoadingTickMsg:
+		podLoading := m.podList.IsLoading()
+		if podLoading || m.nsLoading {
+			newModel := m
+			if podLoading {
+				newModel.podList = m.podList.TickLoading()
+			}
+			if m.nsLoading {
+				newModel.nsSpinnerFrame = (m.nsSpinnerFrame + 1) % 10
+			}
+			return newModel, loadingTickCmd()
+		}
+		return m, nil
 
 	case TickMsg:
 		if m.state == stateBrowsing {
@@ -150,7 +179,11 @@ func (m Model) View() string {
 
 	default:
 		status := ""
-		if m.statusMsg != "" {
+		if m.nsLoading {
+			spinner := styles.LoadingSpinner.Render(nsSpinnerFrames[m.nsSpinnerFrame])
+			label := styles.LoadingPrefix.Render(" Loading namespaces...")
+			status = "\n  " + spinner + label
+		} else if m.statusMsg != "" {
 			status = "\n" + m.statusMsg
 		}
 		if m.err != nil {
@@ -183,22 +216,29 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 	if msg.FetchID != m.fetchID {
 		return m
 	}
-	if msg.Err != nil {
+	if msg.Err != nil && len(msg.Pods) == 0 {
 		newModel := m
 		newModel.err = msg.Err
 		return newModel
 	}
-	totalCount := len(msg.Pods)
-	pods := msg.Pods
+	// Always cache the full unfiltered list for client-side filter toggling
+	allPods := msg.Pods
+	totalCount := len(allPods)
+	displayPods := allPods
 	if m.filter.ShowDirtyOnly {
-		pods = k8s.FilterDirtyPods(pods)
+		displayPods = k8s.FilterDirtyPods(allPods)
 	}
 	newModel := m
-	newModel.podList = m.podList.SetItems(pods)
+	newModel.allPods = allPods
+	newModel.podList = m.podList.SetItems(displayPods)
 	newModel.totalPodCount = totalCount
-	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(pods), totalCount))
+	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), totalCount))
 	newModel.err = nil
-	newModel.statusMsg = ""
+	if msg.Err != nil {
+		newModel.statusMsg = "Warning: some namespaces failed to load"
+	} else {
+		newModel.statusMsg = ""
+	}
 	return newModel
 }
 
@@ -225,12 +265,14 @@ func (m Model) handleNamespacesLoaded(msg NamespacesLoadedMsg) Model {
 		newModel := m
 		newModel.err = msg.Err
 		newModel.state = stateBrowsing
+		newModel.nsLoading = false
 		return newModel
 	}
 	newModel := m
 	newModel.nsSwitcher = m.nsSwitcher.SetNamespaces(msg.Namespaces).Activate()
 	newModel.state = stateSwitchingNamespace
 	newModel.statusMsg = ""
+	newModel.nsLoading = false
 	return newModel
 }
 
@@ -290,24 +332,38 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return newModel, nil
 	case key.Matches(msg, m.keys.Namespace):
 		newModel := m
-		newModel.statusMsg = "Loading namespaces..."
-		return newModel, newModel.fetchNamespacesCmd()
+		newModel.nsLoading = true
+		newModel.nsSpinnerFrame = 0
+		newModel.statusMsg = ""
+		return newModel, tea.Batch(newModel.fetchNamespacesCmd(), loadingTickCmd())
 	case key.Matches(msg, m.keys.Refresh):
 		newModel := m
+		newModel.podList = m.podList.SetLoading()
 		newModel.statusMsg = "Refreshing..."
-		return newModel, newModel.fetchPodsCmd()
+		return newModel, tea.Batch(newModel.fetchPodsCmd(), loadingTickCmd())
 	case key.Matches(msg, m.keys.Filter):
 		newFilter := !m.filter.ShowDirtyOnly
 		newModel := m
 		newModel.filter = k8s.ResourceFilter{ShowDirtyOnly: newFilter}
-		newModel.podList = m.podList.SetLoading()
 		if newFilter {
 			newModel.statusMsg = "Filter: showing dirty pods only"
 		} else {
 			newModel.statusMsg = "Filter: showing all pods"
 		}
+		// Use cached pods if available — no API call needed
+		if m.allPods != nil {
+			displayPods := m.allPods
+			if newFilter {
+				displayPods = k8s.FilterDirtyPods(m.allPods)
+			}
+			newModel.podList = m.podList.SetItems(displayPods)
+			newModel.header = m.header.SetFilter(newFilter, buildPodCountLabel(newFilter, len(displayPods), len(m.allPods)))
+			return newModel, nil
+		}
+		// No cached data — must fetch
+		newModel.podList = m.podList.SetLoading()
 		newModel.header = m.header.SetFilter(newFilter, "")
-		return newModel, newModel.fetchPodsCmd()
+		return newModel, tea.Batch(newModel.fetchPodsCmd(), loadingTickCmd())
 	}
 	return m, nil
 }
@@ -365,7 +421,7 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		width:      m.width,
 		height:     m.height,
 	}
-	return newModel, newModel.fetchPodsCmd()
+	return newModel, tea.Batch(newModel.fetchPodsCmd(), loadingTickCmd())
 }
 
 // --- Command factories ---
@@ -378,7 +434,13 @@ func (m *Model) fetchPodsCmd() tea.Cmd {
 	ns := m.namespace
 	client := m.client
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if ns == k8s.AllNamespaces {
+			ctx, cancel := context.WithTimeout(context.Background(), fetchTimeoutAllNS)
+			defer cancel()
+			pods, err := k8s.ListPodsAllNamespaces(ctx, client)
+			return PodsLoadedMsg{Pods: pods, Err: err, FetchID: id}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
 		pods, err := k8s.ListPods(ctx, client, ns)
 		return PodsLoadedMsg{Pods: pods, Err: err, FetchID: id}
@@ -406,8 +468,24 @@ func (m Model) fetchNamespacesCmd() tea.Cmd {
 }
 
 func (m Model) tickCmd() tea.Cmd {
-	return tea.Tick(pollInterval, func(time.Time) tea.Msg {
+	interval := pollInterval
+	if m.namespace == k8s.AllNamespaces {
+		interval = pollIntervalAllNS
+	}
+	return tea.Tick(interval, func(time.Time) tea.Msg {
 		return TickMsg{}
+	})
+}
+
+const loadingTickInterval = 80 * time.Millisecond
+
+// nsSpinnerFrames are the animation frames for the namespace loading spinner.
+var nsSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// loadingTickCmd sends a LoadingTickMsg after a short interval for spinner animation.
+func loadingTickCmd() tea.Cmd {
+	return tea.Tick(loadingTickInterval, func(time.Time) tea.Msg {
+		return LoadingTickMsg{}
 	})
 }
 

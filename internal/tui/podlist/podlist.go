@@ -2,12 +2,43 @@ package podlist
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
 	"github.com/jprasad/k8sweep/internal/k8s"
 	"github.com/jprasad/k8sweep/internal/tui/styles"
 )
+
+// spinnerFrames are the animation frames for the loading spinner.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// loadingFacts are fun facts shown while waiting for pods to load.
+var loadingFacts = []string{
+	"Did you know? A pod of whales can have up to 1,000 members.",
+	"The name 'Kubernetes' comes from Greek, meaning 'helmsman'.",
+	"A container in the wild can run for years without a restart. Yours won't.",
+	"The first Kubernetes commit was on June 6, 2014.",
+	"Fun fact: etcd stores your entire cluster state in a single Raft log.",
+	"Pods are ephemeral. Like this loading message.",
+	"There are mass bird die-offs called 'pod events' too. Unrelated, probably.",
+	"The average pod lives shorter than a mayfly in production.",
+	"kubectl was almost named 'kubecfg'. Dodged a bullet there.",
+	"CrashLoopBackOff is just your pod taking a power nap.",
+	"Somewhere, a DevOps engineer is also waiting for pods right now.",
+	"Your cluster has more YAML than a library has books.",
+	"OOMKilled: when your pod's eyes are bigger than its memory limits.",
+	"'It works on my machine' is why we have containers.",
+	"The 'k' in k8s stands for... well, 'k'.",
+}
+
+func randomFactIndex() int {
+	return rand.Intn(len(loadingFacts))
+}
+
+// factRotateInterval is the number of loading ticks before rotating the fact.
+// At 80ms per tick, 125 ticks = 10 seconds per fact.
+const factRotateInterval = 125
 
 // Model represents the interactive pod list component.
 type Model struct {
@@ -18,6 +49,9 @@ type Model struct {
 	height        int
 	offset        int // viewport scroll offset
 	loading       bool
+	spinnerFrame  int // current spinner animation frame index
+	factIndex     int // current fact message index
+	factTicks     int // ticks elapsed since last fact rotation
 	showNamespace bool // show namespace column (all-namespaces mode)
 }
 
@@ -26,6 +60,7 @@ func New() Model {
 	return Model{
 		selected: make(map[string]struct{}),
 		loading:  true,
+		factIndex: randomFactIndex(),
 	}
 }
 
@@ -34,7 +69,12 @@ func (m Model) Len() int {
 	return len(m.items)
 }
 
-// SetLoading returns a new model in the loading state.
+// IsLoading returns whether the model is in the loading state.
+func (m Model) IsLoading() bool {
+	return m.loading
+}
+
+// SetLoading returns a new model in the loading state with a random fun fact.
 func (m Model) SetLoading() Model {
 	return Model{
 		items:         m.items,
@@ -44,8 +84,26 @@ func (m Model) SetLoading() Model {
 		height:        m.height,
 		offset:        m.offset,
 		loading:       true,
+		spinnerFrame:  0,
+		factIndex:     randomFactIndex(),
 		showNamespace: m.showNamespace,
 	}
+}
+
+// TickLoading advances the spinner frame and rotates the fact message every
+// factRotateInterval ticks (~10s). Returns a new model (only meaningful when loading).
+func (m Model) TickLoading() Model {
+	if !m.loading {
+		return m
+	}
+	newModel := m
+	newModel.spinnerFrame = (m.spinnerFrame + 1) % len(spinnerFrames)
+	newModel.factTicks = m.factTicks + 1
+	if newModel.factTicks >= factRotateInterval {
+		newModel.factIndex = (m.factIndex + 1) % len(loadingFacts)
+		newModel.factTicks = 0
+	}
+	return newModel
 }
 
 // SetShowNamespace returns a new model that shows or hides the namespace column.
@@ -72,14 +130,16 @@ func (m Model) SetItems(pods []k8s.PodInfo) Model {
 // SetSize returns a new model with the updated dimensions.
 func (m Model) SetSize(width, height int) Model {
 	return Model{
-		items:         m.items,
-		cursor:        m.cursor,
-		selected:      m.selected,
-		width:         width,
-		height:        height,
-		offset:        m.offset,
-		loading:       m.loading,
-		showNamespace: m.showNamespace,
+		items:          m.items,
+		cursor:         m.cursor,
+		selected:       m.selected,
+		width:          width,
+		height:         height,
+		offset:         m.offset,
+		loading:        m.loading,
+		spinnerFrame:  m.spinnerFrame,
+		factIndex:     m.factIndex,
+		showNamespace:  m.showNamespace,
 	}
 }
 
@@ -103,14 +163,16 @@ func (m Model) ToggleSelect() Model {
 		newSelected[key] = struct{}{}
 	}
 	return Model{
-		items:         m.items,
-		cursor:        m.cursor,
-		selected:      newSelected,
-		width:         m.width,
-		height:        m.height,
-		offset:        m.offset,
-		loading:       m.loading,
-		showNamespace: m.showNamespace,
+		items:          m.items,
+		cursor:         m.cursor,
+		selected:       newSelected,
+		width:          m.width,
+		height:         m.height,
+		offset:         m.offset,
+		loading:        m.loading,
+		spinnerFrame:  m.spinnerFrame,
+		factIndex:     m.factIndex,
+		showNamespace:  m.showNamespace,
 	}
 }
 
@@ -121,28 +183,32 @@ func (m Model) SelectAll() Model {
 		newSelected[podKey(p)] = struct{}{}
 	}
 	return Model{
-		items:         m.items,
-		cursor:        m.cursor,
-		selected:      newSelected,
-		width:         m.width,
-		height:        m.height,
-		offset:        m.offset,
-		loading:       m.loading,
-		showNamespace: m.showNamespace,
+		items:          m.items,
+		cursor:         m.cursor,
+		selected:       newSelected,
+		width:          m.width,
+		height:         m.height,
+		offset:         m.offset,
+		loading:        m.loading,
+		spinnerFrame:  m.spinnerFrame,
+		factIndex:     m.factIndex,
+		showNamespace:  m.showNamespace,
 	}
 }
 
 // DeselectAll deselects all items.
 func (m Model) DeselectAll() Model {
 	return Model{
-		items:         m.items,
-		cursor:        m.cursor,
-		selected:      make(map[string]struct{}),
-		width:         m.width,
-		height:        m.height,
-		offset:        m.offset,
-		loading:       m.loading,
-		showNamespace: m.showNamespace,
+		items:          m.items,
+		cursor:         m.cursor,
+		selected:       make(map[string]struct{}),
+		width:          m.width,
+		height:         m.height,
+		offset:         m.offset,
+		loading:        m.loading,
+		spinnerFrame:  m.spinnerFrame,
+		factIndex:     m.factIndex,
+		showNamespace:  m.showNamespace,
 	}
 }
 
@@ -160,13 +226,15 @@ func (m Model) MoveUp() Model {
 		newOffset = newCursor
 	}
 	return Model{
-		items:         m.items,
-		cursor:        newCursor,
-		selected:      m.selected,
-		width:         m.width,
-		height:        m.height,
-		offset:        newOffset,
-		showNamespace: m.showNamespace,
+		items:          m.items,
+		cursor:         newCursor,
+		selected:       m.selected,
+		width:          m.width,
+		height:         m.height,
+		offset:         newOffset,
+		spinnerFrame:  m.spinnerFrame,
+		factIndex:     m.factIndex,
+		showNamespace:  m.showNamespace,
 	}
 }
 
@@ -188,13 +256,15 @@ func (m Model) MoveDown() Model {
 		newOffset = newCursor - visibleRows + 1
 	}
 	return Model{
-		items:         m.items,
-		cursor:        newCursor,
-		selected:      m.selected,
-		width:         m.width,
-		height:        m.height,
-		offset:        newOffset,
-		showNamespace: m.showNamespace,
+		items:          m.items,
+		cursor:         newCursor,
+		selected:       m.selected,
+		width:          m.width,
+		height:         m.height,
+		offset:         newOffset,
+		spinnerFrame:  m.spinnerFrame,
+		factIndex:     m.factIndex,
+		showNamespace:  m.showNamespace,
 	}
 }
 
@@ -217,7 +287,10 @@ func (m Model) SelectedCount() int {
 // View renders the pod list.
 func (m Model) View() string {
 	if m.loading {
-		return styles.FooterHelp.Render("  Fetching pods...")
+		spinner := styles.LoadingSpinner.Render(spinnerFrames[m.spinnerFrame])
+		prefix := styles.LoadingPrefix.Render(" Fetching pods...")
+		fact := styles.LoadingFact.Render(" " + loadingFacts[m.factIndex])
+		return fmt.Sprintf("  %s%s\n  %s", spinner, prefix, fact)
 	}
 	if len(m.items) == 0 {
 		return styles.FooterHelp.Render("  No pods found.")

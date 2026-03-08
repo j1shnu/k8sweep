@@ -64,6 +64,18 @@ var (
 			Bold(true).
 			Foreground(lipgloss.Color("#000000")).
 			Background(lipgloss.Color("#FFAA00"))
+
+	LoadingSpinner = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#7D56F4"))
+
+	LoadingPrefix = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#00FFFF"))
+
+	LoadingFact = lipgloss.NewStyle().
+			Italic(true).
+			Foreground(lipgloss.Color("#FFAA00"))
 )
 
 // StyleForStatus returns the appropriate lipgloss style for a pod status.
