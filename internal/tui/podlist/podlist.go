@@ -217,25 +217,15 @@ func (m Model) MoveUp() Model {
 	if len(m.items) == 0 {
 		return m
 	}
-	newCursor := m.cursor - 1
-	if newCursor < 0 {
-		newCursor = 0
+	newModel := m
+	newModel.cursor = m.cursor - 1
+	if newModel.cursor < 0 {
+		newModel.cursor = 0
 	}
-	newOffset := m.offset
-	if newCursor < newOffset {
-		newOffset = newCursor
+	if newModel.cursor < newModel.offset {
+		newModel.offset = newModel.cursor
 	}
-	return Model{
-		items:          m.items,
-		cursor:         newCursor,
-		selected:       m.selected,
-		width:          m.width,
-		height:         m.height,
-		offset:         newOffset,
-		spinnerFrame:  m.spinnerFrame,
-		factIndex:     m.factIndex,
-		showNamespace:  m.showNamespace,
-	}
+	return newModel
 }
 
 // MoveDown moves the cursor down by one.
@@ -243,29 +233,19 @@ func (m Model) MoveDown() Model {
 	if len(m.items) == 0 {
 		return m
 	}
-	newCursor := m.cursor + 1
-	if newCursor >= len(m.items) {
-		newCursor = len(m.items) - 1
+	newModel := m
+	newModel.cursor = m.cursor + 1
+	if newModel.cursor >= len(m.items) {
+		newModel.cursor = len(m.items) - 1
 	}
-	newOffset := m.offset
 	visibleRows := m.height
 	if visibleRows <= 0 {
 		visibleRows = 10
 	}
-	if newCursor >= newOffset+visibleRows {
-		newOffset = newCursor - visibleRows + 1
+	if newModel.cursor >= newModel.offset+visibleRows {
+		newModel.offset = newModel.cursor - visibleRows + 1
 	}
-	return Model{
-		items:          m.items,
-		cursor:         newCursor,
-		selected:       m.selected,
-		width:          m.width,
-		height:         m.height,
-		offset:         newOffset,
-		spinnerFrame:  m.spinnerFrame,
-		factIndex:     m.factIndex,
-		showNamespace:  m.showNamespace,
-	}
+	return newModel
 }
 
 // GetSelected returns copies of all selected pods.

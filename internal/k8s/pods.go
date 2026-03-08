@@ -53,15 +53,17 @@ func ListPodsAllNamespaces(ctx context.Context, client *Client) ([]PodInfo, erro
 		return nil, err
 	}
 
-	// Sort by namespace then name for deterministic output
-	sort.Slice(pods, func(i, j int) bool {
-		if pods[i].Namespace != pods[j].Namespace {
-			return pods[i].Namespace < pods[j].Namespace
+	// Copy before sorting to avoid mutating the original slice
+	sorted := make([]PodInfo, len(pods))
+	copy(sorted, pods)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Namespace != sorted[j].Namespace {
+			return sorted[i].Namespace < sorted[j].Namespace
 		}
-		return pods[i].Name < pods[j].Name
+		return sorted[i].Name < sorted[j].Name
 	})
 
-	return pods, nil
+	return sorted, nil
 }
 
 // FilterDirtyPods returns a new slice containing only dirty pods.

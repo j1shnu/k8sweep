@@ -137,7 +137,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				newModel.podList = m.podList.TickLoading()
 			}
 			if m.nsLoading {
-				newModel.nsSpinnerFrame = (m.nsSpinnerFrame + 1) % 10
+				newModel.nsSpinnerFrame = (m.nsSpinnerFrame + 1) % len(nsSpinnerFrames)
 			}
 			return newModel, loadingTickCmd()
 		}
