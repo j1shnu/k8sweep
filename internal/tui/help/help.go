@@ -58,6 +58,12 @@ func (m Model) View() string {
 	b.WriteString("  " + styles.LoadingPrefix.Render("[esc]") + "  " + styles.FooterHelp.Render("cancel") + "\n")
 
 	b.WriteString("\n")
+	b.WriteString(styles.Title.Render("In Pod Detail"))
+	b.WriteString("\n")
+	b.WriteString("  " + styles.LoadingPrefix.Render("[j/k]") + "  " + styles.FooterHelp.Render("scroll up/down") + "\n")
+	b.WriteString("  " + styles.LoadingPrefix.Render("[i/esc]") + "  " + styles.FooterHelp.Render("close detail view") + "\n")
+
+	b.WriteString("\n")
 	b.WriteString(styles.Title.Render("In Namespace Switcher"))
 	b.WriteString("\n")
 	b.WriteString("  " + styles.FooterHelp.Render("type to filter, [enter] select, [esc] cancel") + "\n")

@@ -11,6 +11,8 @@ type KeyMap struct {
 	Namespace key.Binding
 	Refresh   key.Binding
 	Filter    key.Binding
+	Sort      key.Binding
+	Info      key.Binding
 	Help      key.Binding
 	Quit      key.Binding
 	Confirm   key.Binding
@@ -49,6 +51,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("f"),
 			key.WithHelp("f", "toggle dirty-only filter"),
 		),
+		Sort: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "cycle sort column"),
+		),
+		Info: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "pod details"),
+		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?", "toggle help"),
@@ -75,14 +85,14 @@ func DefaultKeyMap() KeyMap {
 // ShortHelp returns the short help keybindings for the footer bar.
 // Only essential action keys are shown; navigation/selection keys are in FullHelp (? view).
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Delete, k.Namespace, k.Filter, k.Help, k.Quit}
+	return []key.Binding{k.Delete, k.Namespace, k.Filter, k.Sort, k.Info, k.Help, k.Quit}
 }
 
 // FullHelp returns grouped keybindings for the full help view.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Select, k.SelectAll},
-		{k.Delete, k.Refresh, k.Filter},
-		{k.Namespace, k.Help, k.Quit},
+		{k.Delete, k.Refresh, k.Filter, k.Sort},
+		{k.Info, k.Namespace, k.Help, k.Quit},
 	}
 }

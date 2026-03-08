@@ -54,6 +54,8 @@ type Model struct {
 	factTicks        int  // ticks elapsed since last fact rotation
 	showNamespace    bool // show namespace column (all-namespaces mode)
 	metricsAvailable bool // show CPU/memory columns when metrics API is available
+	sortColumn       SortColumn
+	sortOrder        SortOrder
 }
 
 // New creates an empty pod list model.
@@ -89,6 +91,8 @@ func (m Model) SetLoading() Model {
 		factIndex:        randomFactIndex(),
 		showNamespace:    m.showNamespace,
 		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
 	}
 }
 
@@ -134,7 +138,101 @@ func (m Model) SetItems(pods []k8s.PodInfo) Model {
 		loading:          false,
 		showNamespace:    m.showNamespace,
 		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
 	}
+}
+
+// SetItemsSorted returns a new model with pods sorted by the current sort column,
+// resetting cursor and selection (same as SetItems but applies current sort).
+func (m Model) SetItemsSorted(pods []k8s.PodInfo) Model {
+	sorted := sortPods(pods, m.sortColumn, m.sortOrder)
+	return Model{
+		items:            sorted,
+		cursor:           0,
+		selected:         make(map[string]struct{}),
+		width:            m.width,
+		height:           m.height,
+		offset:           0,
+		loading:          false,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
+	}
+}
+
+// SetSort applies a new sort column and order. Preserves cursor position by tracking
+// the pod key at the current cursor. Selection is preserved.
+func (m Model) SetSort(col SortColumn, order SortOrder) Model {
+	// Track the pod under cursor so we can follow it after sort
+	var cursorKey string
+	if len(m.items) > 0 && m.cursor < len(m.items) {
+		cursorKey = podKey(m.items[m.cursor])
+	}
+
+	sorted := sortPods(m.items, col, order)
+
+	// Find the tracked pod in the new order
+	newCursor := 0
+	for i, p := range sorted {
+		if podKey(p) == cursorKey {
+			newCursor = i
+			break
+		}
+	}
+
+	// Adjust offset so cursor is visible
+	newOffset := m.offset
+	visibleRows := m.height
+	if visibleRows <= 0 {
+		visibleRows = 10
+	}
+	if newCursor < newOffset {
+		newOffset = newCursor
+	} else if newCursor >= newOffset+visibleRows {
+		newOffset = newCursor - visibleRows + 1
+	}
+
+	return Model{
+		items:            sorted,
+		cursor:           newCursor,
+		selected:         m.selected,
+		width:            m.width,
+		height:           m.height,
+		offset:           newOffset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
+		sortColumn:       col,
+		sortOrder:        order,
+	}
+}
+
+// SortColumn returns the current sort column.
+func (m Model) SortColumn() SortColumn {
+	return m.sortColumn
+}
+
+// SortOrder returns the current sort order.
+func (m Model) SortOrder() SortOrder {
+	return m.sortOrder
+}
+
+// MetricsAvailable returns whether metrics columns are shown.
+func (m Model) MetricsAvailable() bool {
+	return m.metricsAvailable
+}
+
+// CursorItem returns the pod at the current cursor position, or nil if empty.
+func (m Model) CursorItem() *k8s.PodInfo {
+	if len(m.items) == 0 || m.cursor >= len(m.items) {
+		return nil
+	}
+	p := m.items[m.cursor]
+	return &p
 }
 
 // SetSize returns a new model with the updated dimensions.
@@ -151,6 +249,8 @@ func (m Model) SetSize(width, height int) Model {
 		factIndex:        m.factIndex,
 		showNamespace:    m.showNamespace,
 		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
 	}
 }
 
@@ -185,6 +285,8 @@ func (m Model) ToggleSelect() Model {
 		factIndex:        m.factIndex,
 		showNamespace:    m.showNamespace,
 		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
 	}
 }
 
@@ -206,6 +308,8 @@ func (m Model) SelectAll() Model {
 		factIndex:        m.factIndex,
 		showNamespace:    m.showNamespace,
 		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
 	}
 }
 
@@ -223,6 +327,8 @@ func (m Model) DeselectAll() Model {
 		factIndex:        m.factIndex,
 		showNamespace:    m.showNamespace,
 		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
 	}
 }
 
@@ -297,6 +403,11 @@ func (m Model) View() string {
 
 	var b strings.Builder
 
+	// Render column header row
+	b.WriteString(m.renderHeaderRow())
+	b.WriteString("\n")
+	visibleRows-- // header takes one row
+
 	end := m.offset + visibleRows
 	if end > len(m.items) {
 		end = len(m.items)
@@ -354,6 +465,45 @@ func (m Model) View() string {
 	}
 
 	return b.String()
+}
+
+// renderHeaderRow renders the column header with sort indicator.
+func (m Model) renderHeaderRow() string {
+	indicator := func(col SortColumn) string {
+		if m.sortColumn == col {
+			return " " + SortIndicator(m.sortOrder)
+		}
+		return ""
+	}
+
+	// Pad to match the pointer + checkbox prefix ("  [ ] ")
+	prefix := "      "
+
+	var header string
+	if m.showNamespace {
+		header = fmt.Sprintf("%s%-20s %-45s %-16s  %-5s  %-10s",
+			prefix,
+			"NAMESPACE"+indicator(SortByName),
+			"NAME"+indicator(SortByName),
+			"STATUS"+indicator(SortByStatus),
+			"AGE"+indicator(SortByAge),
+			"RESTARTS"+indicator(SortByRestarts))
+	} else {
+		header = fmt.Sprintf("%s%-45s %-16s  %-5s  %-10s",
+			prefix,
+			"NAME"+indicator(SortByName),
+			"STATUS"+indicator(SortByStatus),
+			"AGE"+indicator(SortByAge),
+			"RESTARTS"+indicator(SortByRestarts))
+	}
+
+	if m.metricsAvailable {
+		header += fmt.Sprintf("  %-8s  %-8s",
+			"CPU"+indicator(SortByCPU),
+			"MEM"+indicator(SortByMemory))
+	}
+
+	return styles.FooterHelp.Render(header)
 }
 
 // formatCPU formats CPU millicores for display (e.g., "250m", "1.5").

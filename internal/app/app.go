@@ -16,6 +16,7 @@ import (
 	"github.com/jprasad/k8sweep/internal/tui/header"
 	"github.com/jprasad/k8sweep/internal/tui/help"
 	"github.com/jprasad/k8sweep/internal/tui/namespace"
+	"github.com/jprasad/k8sweep/internal/tui/poddetail"
 	"github.com/jprasad/k8sweep/internal/tui/podlist"
 	"github.com/jprasad/k8sweep/internal/tui/styles"
 )
@@ -28,6 +29,7 @@ const (
 	stateConfirming
 	stateSwitchingNamespace
 	stateHelp
+	stateViewingDetail
 )
 
 const (
@@ -53,12 +55,14 @@ type Model struct {
 	// Responses with a different ID are discarded as stale.
 	fetchID uint64
 
-	header     header.Model
-	podList    podlist.Model
-	footer     footer.Model
-	confirm    confirm.Model
-	nsSwitcher namespace.Model
-	help       help.Model
+	header       header.Model
+	podList      podlist.Model
+	footer       footer.Model
+	confirm      confirm.Model
+	nsSwitcher   namespace.Model
+	help         help.Model
+	podDetail    poddetail.Model
+	detailPodKey string // tracks which pod's detail was requested
 
 	allPods        []k8s.PodInfo // cached full pod list for client-side filtering
 	totalPodCount  int
@@ -140,6 +144,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MetricsLoadedMsg:
 		return m.handleMetricsLoaded(msg), nil
 
+	case PodDetailLoadedMsg:
+		return m.handlePodDetailLoaded(msg), nil
+
 	case PodsDeletedMsg:
 		return m.handlePodsDeleted(msg)
 
@@ -190,6 +197,10 @@ func (m Model) View() string {
 			m.help.View() + "\n" +
 			m.footer.View() + "\n"
 
+	case stateViewingDetail:
+		return m.header.View() + "\n" +
+			m.podDetail.View() + "\n"
+
 	case stateConfirming:
 		return m.header.View() + "\n" +
 			m.podList.View() + "\n\n" +
@@ -220,7 +231,8 @@ func (m Model) View() string {
 // --- Message handlers ---
 
 func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
-	listHeight := msg.Height - common.HeaderHeight - common.FooterHeight - 2
+	// -1 extra for the column header row rendered inside podlist.View()
+	listHeight := msg.Height - common.HeaderHeight - common.FooterHeight - 3
 	if listHeight < 3 {
 		listHeight = 3
 	}
@@ -229,6 +241,7 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	newModel.podList = m.podList.SetSize(msg.Width, listHeight)
 	newModel.footer = m.footer.SetWidth(msg.Width)
 	newModel.help = m.help.SetWidth(msg.Width)
+	newModel.podDetail = m.podDetail.SetSize(msg.Width, msg.Height-common.HeaderHeight-1)
 	newModel.width = msg.Width
 	newModel.height = msg.Height
 	return newModel
@@ -262,7 +275,7 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 	newModel := m
 	newModel.allPods = allPods
 	newModel.pendingMetrics = nil
-	newModel.podList = m.podList.SetItems(displayPods)
+	newModel.podList = m.podList.SetItemsSorted(displayPods)
 	newModel.totalPodCount = totalCount
 	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), totalCount))
 	newModel.err = nil
@@ -295,7 +308,7 @@ func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
 		}
 		newModel.allPods = allPods
 		newModel.pendingMetrics = nil
-		newModel.podList = m.podList.SetItems(displayPods)
+		newModel.podList = m.podList.SetItemsSorted(displayPods)
 		return newModel
 	}
 
@@ -353,6 +366,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.updateNSSwitcher(msg)
 	case stateHelp:
 		return m.handleHelpKey(msg)
+	case stateViewingDetail:
+		return m.handleDetailKey(msg)
 	}
 	return m, nil
 }
@@ -419,6 +434,22 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel.podList = m.podList.SetLoading()
 		newModel.statusMsg = "Refreshing..."
 		return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
+	case key.Matches(msg, m.keys.Info):
+		pod := m.podList.CursorItem()
+		if pod == nil {
+			return m, nil
+		}
+		newModel := m
+		newModel.state = stateViewingDetail
+		newModel.detailPodKey = pod.Namespace + "/" + pod.Name
+		newModel.podDetail = m.podDetail.SetSize(m.width, m.height-common.HeaderHeight-1).SetLoading()
+		return newModel, newModel.fetchPodDetailCmd(pod.Namespace, pod.Name)
+	case key.Matches(msg, m.keys.Sort):
+		nextCol := podlist.NextSortColumn(m.podList.SortColumn(), m.podList.MetricsAvailable())
+		newModel := m
+		newModel.podList = m.podList.SetSort(nextCol, podlist.SortAsc)
+		newModel.statusMsg = "Sort: " + podlist.SortColumnLabel(nextCol) + " " + podlist.SortIndicator(podlist.SortAsc)
+		return newModel, nil
 	case key.Matches(msg, m.keys.Filter):
 		newFilter := !m.filter.ShowDirtyOnly
 		newModel := m
@@ -434,7 +465,7 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			if newFilter {
 				displayPods = k8s.FilterDirtyPods(m.allPods)
 			}
-			newModel.podList = m.podList.SetItems(displayPods)
+			newModel.podList = m.podList.SetItemsSorted(displayPods)
 			newModel.header = m.header.SetFilter(newFilter, buildPodCountLabel(newFilter, len(displayPods), len(m.allPods)))
 			return newModel, nil
 		}
@@ -497,6 +528,7 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		confirm:          m.confirm,
 		nsSwitcher:       m.nsSwitcher.Deactivate(),
 		help:             m.help,
+		podDetail:        m.podDetail.Hide(),
 		width:            m.width,
 		height:           m.height,
 		metricsAvailable: m.metricsAvailable,
@@ -563,6 +595,50 @@ func (m Model) fetchNamespacesCmd() tea.Cmd {
 		defer cancel()
 		ns, err := client.ListNamespaces(ctx)
 		return NamespacesLoadedMsg{Namespaces: ns, Err: err}
+	}
+}
+
+func (m Model) handlePodDetailLoaded(msg PodDetailLoadedMsg) Model {
+	// Discard stale responses (namespace switched or different pod requested)
+	if m.state != stateViewingDetail || msg.PodKey != m.detailPodKey {
+		return m
+	}
+	newModel := m
+	if msg.Err != nil {
+		newModel.podDetail = m.podDetail.SetError(msg.Err.Error())
+	} else {
+		newModel.podDetail = m.podDetail.SetDetail(msg.Detail)
+	}
+	return newModel
+}
+
+func (m Model) handleDetailKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, m.keys.Info) || msg.String() == "esc":
+		newModel := m
+		newModel.state = stateBrowsing
+		newModel.podDetail = m.podDetail.Hide()
+		return newModel, nil
+	case msg.String() == "j" || msg.String() == "down":
+		newModel := m
+		newModel.podDetail = m.podDetail.ScrollDown()
+		return newModel, nil
+	case msg.String() == "k" || msg.String() == "up":
+		newModel := m
+		newModel.podDetail = m.podDetail.ScrollUp()
+		return newModel, nil
+	}
+	return m, nil
+}
+
+func (m Model) fetchPodDetailCmd(namespace, name string) tea.Cmd {
+	client := m.client
+	podKey := namespace + "/" + name
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+		detail, err := k8s.GetPodDetail(ctx, client, namespace, name)
+		return PodDetailLoadedMsg{Detail: detail, Err: err, PodKey: podKey}
 	}
 }
 

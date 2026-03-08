@@ -281,3 +281,95 @@ func TestView_WithoutMetrics(t *testing.T) {
 	assert.NotContains(t, view, "cpu:")
 	assert.NotContains(t, view, "mem:")
 }
+
+func TestSortPreservedAcrossOperations(t *testing.T) {
+	m := New().SetItems(samplePods()).SetSort(SortByStatus, SortDesc)
+	assert.Equal(t, SortByStatus, m.sortColumn)
+	assert.Equal(t, SortDesc, m.sortOrder)
+
+	m = m.MoveDown()
+	assert.Equal(t, SortByStatus, m.sortColumn)
+	m = m.ToggleSelect()
+	assert.Equal(t, SortByStatus, m.sortColumn)
+	m = m.SelectAll()
+	assert.Equal(t, SortByStatus, m.sortColumn)
+	m = m.DeselectAll()
+	assert.Equal(t, SortByStatus, m.sortColumn)
+	m = m.SetSize(120, 10)
+	assert.Equal(t, SortByStatus, m.sortColumn)
+	m = m.SetLoading()
+	assert.Equal(t, SortByStatus, m.sortColumn)
+}
+
+func TestSetSort_CursorTracking(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "alpha", Namespace: "default", Status: k8s.StatusRunning},
+		{Name: "bravo", Namespace: "default", Status: k8s.StatusFailed},
+		{Name: "charlie", Namespace: "default", Status: k8s.StatusPending},
+	}
+	m := New().SetItems(pods).SetSize(120, 20)
+
+	// Move cursor to "bravo" (index 1)
+	m = m.MoveDown()
+	assert.Equal(t, 1, m.cursor)
+
+	// Sort by name desc → charlie, bravo, alpha
+	m = m.SetSort(SortByName, SortDesc)
+	// Cursor should follow "bravo" to its new position (index 1)
+	assert.Equal(t, 1, m.cursor)
+	p := m.CursorItem()
+	assert.NotNil(t, p)
+	assert.Equal(t, "bravo", p.Name)
+}
+
+func TestSetSort_PreservesSelection(t *testing.T) {
+	pods := samplePods()
+	m := New().SetItems(pods).SetSize(120, 20)
+	m = m.ToggleSelect() // select pod-1
+	assert.Equal(t, 1, m.SelectedCount())
+
+	m = m.SetSort(SortByStatus, SortDesc)
+	assert.Equal(t, 1, m.SelectedCount())
+}
+
+func TestSetItemsSorted_AppliesCurrentSort(t *testing.T) {
+	m := New().SetSort(SortByName, SortDesc)
+
+	pods := []k8s.PodInfo{
+		{Name: "alpha", Namespace: "default"},
+		{Name: "charlie", Namespace: "default"},
+		{Name: "bravo", Namespace: "default"},
+	}
+	m = m.SetItemsSorted(pods)
+
+	p := m.CursorItem()
+	assert.NotNil(t, p)
+	assert.Equal(t, "charlie", p.Name) // desc order → charlie first
+}
+
+func TestView_HeaderRow(t *testing.T) {
+	m := New().SetItems(samplePods()).SetSize(120, 10)
+	view := m.View()
+	assert.Contains(t, view, "NAME")
+	assert.Contains(t, view, "STATUS")
+	assert.Contains(t, view, "AGE")
+	assert.Contains(t, view, "RESTARTS")
+}
+
+func TestView_HeaderRow_SortIndicator(t *testing.T) {
+	m := New().SetItems(samplePods()).SetSize(120, 10).SetSort(SortByStatus, SortDesc)
+	view := m.View()
+	assert.Contains(t, view, "STATUS ▼")
+}
+
+func TestCursorItem_EmptyList(t *testing.T) {
+	m := New().SetItems(nil)
+	assert.Nil(t, m.CursorItem())
+}
+
+func TestCursorItem_WithPods(t *testing.T) {
+	m := New().SetItems(samplePods())
+	p := m.CursorItem()
+	assert.NotNil(t, p)
+	assert.Equal(t, "pod-1", p.Name)
+}

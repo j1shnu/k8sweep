@@ -27,6 +27,13 @@ type MetricsLoadedMsg struct {
 	FetchID uint64
 }
 
+// PodDetailLoadedMsg is sent when pod detail has been fetched.
+type PodDetailLoadedMsg struct {
+	Detail *k8s.PodDetail
+	Err    error
+	PodKey string // "namespace/name" to detect stale responses
+}
+
 // TickMsg triggers a periodic pod refresh.
 type TickMsg struct{}
 
