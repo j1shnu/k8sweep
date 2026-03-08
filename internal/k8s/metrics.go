@@ -14,12 +14,12 @@ type MetricsClient struct {
 }
 
 // CheckMetricsAvailable probes whether the metrics.k8s.io API group is registered.
-// Returns false on any error (graceful degradation).
+// Handles partial errors from ServerGroupsAndResources, which are common when some
+// API groups are unavailable — the returned resource list is still checked.
 func CheckMetricsAvailable(ctx context.Context, client *Client) bool {
-	_, resources, err := client.clientset.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		return false
-	}
+	// ServerGroupsAndResources may return a partial list alongside a non-nil error
+	// when some API groups are unreachable. We still check the partial results.
+	_, resources, _ := client.clientset.Discovery().ServerGroupsAndResources()
 	for _, r := range resources {
 		if r.GroupVersion == "metrics.k8s.io/v1beta1" {
 			return true

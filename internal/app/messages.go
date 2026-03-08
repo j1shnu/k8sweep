@@ -34,8 +34,8 @@ type NamespacesLoadedMsg struct {
 
 // MetricsLoadedMsg is sent when pod metrics have been fetched from the cluster.
 type MetricsLoadedMsg struct {
-	Metrics map[string]k8s.PodMetrics
-	FetchID uint64
+	Metrics   map[string]k8s.PodMetrics
+	Namespace string // discard if namespace has changed
 }
 
 // PodDetailLoadedMsg is sent when pod detail has been fetched.

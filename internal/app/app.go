@@ -353,8 +353,8 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 }
 
 func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
-	if msg.FetchID != m.fetchID {
-		return m
+	if msg.Namespace != m.namespace {
+		return m // stale metrics from a previous namespace
 	}
 	if msg.Metrics == nil {
 		return m
@@ -838,7 +838,6 @@ func (m Model) fetchMetricsCmd() tea.Cmd {
 	if !m.metricsAvailable {
 		return nil
 	}
-	id := m.fetchID
 	ns := m.namespace
 	mc := m.client.GetMetricsClient()
 	timeout := fetchTimeout
@@ -849,7 +848,7 @@ func (m Model) fetchMetricsCmd() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		metrics := k8s.FetchPodMetrics(ctx, mc, ns)
-		return MetricsLoadedMsg{Metrics: metrics, FetchID: id}
+		return MetricsLoadedMsg{Metrics: metrics, Namespace: ns}
 	}
 }
 

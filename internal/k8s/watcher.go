@@ -22,7 +22,8 @@ type PodWatcher struct {
 	eventCh   chan []PodInfo
 	triggerCh chan struct{}
 	stopCh    chan struct{}
-	once      sync.Once
+	startOnce sync.Once
+	stopOnce  sync.Once
 
 	mu   sync.RWMutex
 	pods map[string]*corev1.Pod // keyed by namespace/name
@@ -42,15 +43,18 @@ func NewPodWatcher(clientset kubernetes.Interface, namespace string) *PodWatcher
 }
 
 // Start begins the list-watch loop and debounce goroutine.
+// Safe to call multiple times — only the first call starts goroutines.
 func (w *PodWatcher) Start() {
-	go w.listWatchLoop()
-	go w.debounceLoop()
+	w.startOnce.Do(func() {
+		go w.listWatchLoop()
+		go w.debounceLoop()
+	})
 }
 
 // Stop shuts down the watcher. The Events channel is closed after
 // the debounce loop exits.
 func (w *PodWatcher) Stop() {
-	w.once.Do(func() {
+	w.stopOnce.Do(func() {
 		close(w.stopCh)
 	})
 }
@@ -190,6 +194,12 @@ func (w *PodWatcher) debounceLoop() {
 			for {
 				select {
 				case <-w.triggerCh:
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
 					timer.Reset(watchDebounceInterval)
 				case <-timer.C:
 					break drain

@@ -15,6 +15,7 @@ var (
 	ColorSelected  = lipgloss.Color("#00FF00") // Green
 	ColorPointer   = lipgloss.Color("#FFFFFF") // White
 	ColorMuted     = lipgloss.Color("#666666") // Muted
+	ColorAccent    = lipgloss.Color("#7D56F4") // Purple accent for borders/highlights
 )
 
 // Component styles
@@ -22,7 +23,7 @@ var (
 	HeaderBox = lipgloss.NewStyle().
 			Bold(true).
 			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4")).
+			BorderForeground(ColorAccent).
 			Padding(0, 1)
 
 	FooterHelp = lipgloss.NewStyle().
@@ -52,7 +53,7 @@ var (
 
 	Title = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#7D56F4"))
+		Foreground(ColorAccent)
 
 	FilterActiveHeaderBox = lipgloss.NewStyle().
 				Bold(true).
@@ -67,7 +68,7 @@ var (
 
 	LoadingSpinner = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#7D56F4"))
+			Foreground(ColorAccent)
 
 	LoadingPrefix = lipgloss.NewStyle().
 			Bold(true).

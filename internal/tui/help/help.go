@@ -86,7 +86,7 @@ func (m Model) View() string {
 
 	boxStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#7D56F4")).
+		BorderForeground(styles.ColorAccent).
 		Padding(1, 2)
 
 	if m.width > 0 {
