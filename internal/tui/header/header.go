@@ -114,9 +114,9 @@ func (m Model) View() string {
 		if m.podCountLabel != "" {
 			content += "  " + m.podCountLabel
 		}
-		if summary != "" {
-			content += "\n" + summary
-		}
+	}
+	if summary != "" && m.filterActive {
+		content += "  │  " + summary
 	}
 
 	style := styles.HeaderBox
