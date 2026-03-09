@@ -188,6 +188,8 @@ func TestFilterToggle_PodCountBadgeAccurate(t *testing.T) {
 	// Header view should contain the pod count
 	view := updated.header.View()
 	assert.Contains(t, view, "FILTERED")
+	assert.Contains(t, view, "Cluster:")
+	assert.Contains(t, view, "Namespace:")
 }
 
 func TestPodsLoaded_IntegrationWithFakeClient(t *testing.T) {
@@ -288,4 +290,42 @@ func TestSingleStepNavigation_DoesNotCrossPage(t *testing.T) {
 	p := m.podList.CursorItem()
 	require.NotNil(t, p)
 	assert.Equal(t, "pod-08", p.Name) // page size 8; clamped on page 1
+}
+
+func TestBuildStatusSummary(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Status: k8s.StatusCrashLoopBack},
+		{Status: k8s.StatusFailed},
+		{Status: k8s.StatusImagePullErr},
+		{Status: k8s.StatusOOMKilled},
+		{Status: k8s.StatusPending},
+		{Status: k8s.StatusTerminating},
+		{Status: k8s.StatusRunning},
+		{Status: k8s.StatusCompleted},
+	}
+
+	s := buildStatusSummary(pods)
+	assert.Equal(t, 2, s.CritCrash)
+	assert.Equal(t, 1, s.CritImgErr)
+	assert.Equal(t, 1, s.CritOOM)
+	assert.Equal(t, 1, s.WarnPending)
+	assert.Equal(t, 1, s.WarnTerminating)
+	assert.Equal(t, 1, s.OKRunning)
+	assert.Equal(t, 1, s.OKCompleted)
+}
+
+func TestFilterOn_HeaderSummaryUsesAllPods(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "failed-1", Namespace: "default", Status: k8s.StatusFailed},
+		{Name: "pending-1", Namespace: "default", Status: k8s.StatusPending},
+	}
+	m := newTestModel(pods)
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	updated := result.(Model)
+
+	view := updated.header.View()
+	assert.Contains(t, view, "Crit:")
+	assert.Contains(t, view, "Warn:")
+	assert.Contains(t, view, "1 Pend")
 }

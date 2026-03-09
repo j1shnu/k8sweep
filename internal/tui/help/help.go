@@ -45,36 +45,36 @@ func (m Model) View() string {
 		b.WriteString("\n")
 		for _, binding := range group {
 			h := binding.Help()
-			keyStr := styles.LoadingPrefix.Render("[" + h.Key + "]")
+			keyStr := styles.LabelText.Render("[" + h.Key + "]")
 			desc := styles.FooterHelp.Render(h.Desc)
 			b.WriteString("  " + keyStr + "  " + desc + "\n")
 		}
 		// gg is raw key logic, not a key.Binding — append to Navigation section
 		if i == 0 {
-			b.WriteString("  " + styles.LoadingPrefix.Render("[gg]") + "  " + styles.FooterHelp.Render("go to first pod") + "\n")
+			b.WriteString("  " + styles.LabelText.Render("[gg]") + "  " + styles.FooterHelp.Render("go to first pod") + "\n")
 		}
 	}
 
 	b.WriteString("\n")
 	b.WriteString(styles.Title.Render("In Search"))
 	b.WriteString("\n")
-	b.WriteString("  " + styles.LoadingPrefix.Render("[type]") + "  " + styles.FooterHelp.Render("filter pods by name (real-time)") + "\n")
-	b.WriteString("  " + styles.LoadingPrefix.Render("[enter]") + "  " + styles.FooterHelp.Render("confirm search filter") + "\n")
-	b.WriteString("  " + styles.LoadingPrefix.Render("[esc]") + "  " + styles.FooterHelp.Render("cancel and clear search") + "\n")
+	b.WriteString("  " + styles.LabelText.Render("[type]") + "  " + styles.FooterHelp.Render("filter pods by name (real-time)") + "\n")
+	b.WriteString("  " + styles.LabelText.Render("[enter]") + "  " + styles.FooterHelp.Render("confirm search filter") + "\n")
+	b.WriteString("  " + styles.LabelText.Render("[esc]") + "  " + styles.FooterHelp.Render("cancel and clear search") + "\n")
 
 	b.WriteString("\n")
 	b.WriteString(styles.Title.Render("In Confirm Dialog"))
 	b.WriteString("\n")
-	b.WriteString("  " + styles.LoadingPrefix.Render("[y/n]") + "  " + styles.FooterHelp.Render("confirm or cancel") + "\n")
-	b.WriteString("  " + styles.LoadingPrefix.Render("[esc]") + "  " + styles.FooterHelp.Render("cancel") + "\n")
+	b.WriteString("  " + styles.LabelText.Render("[y/n]") + "  " + styles.FooterHelp.Render("confirm or cancel") + "\n")
+	b.WriteString("  " + styles.LabelText.Render("[esc]") + "  " + styles.FooterHelp.Render("cancel") + "\n")
 	b.WriteString("  " + styles.FooterHelp.Render("force delete (x) bypasses graceful shutdown") + "\n")
 	b.WriteString("  " + styles.FooterHelp.Render("standalone pods (no controller) show a warning") + "\n")
 
 	b.WriteString("\n")
 	b.WriteString(styles.Title.Render("In Pod Detail"))
 	b.WriteString("\n")
-	b.WriteString("  " + styles.LoadingPrefix.Render("[j/k]") + "  " + styles.FooterHelp.Render("scroll up/down") + "\n")
-	b.WriteString("  " + styles.LoadingPrefix.Render("[i/esc]") + "  " + styles.FooterHelp.Render("close detail view") + "\n")
+	b.WriteString("  " + styles.LabelText.Render("[j/k]") + "  " + styles.FooterHelp.Render("scroll up/down") + "\n")
+	b.WriteString("  " + styles.LabelText.Render("[i/esc]") + "  " + styles.FooterHelp.Render("close detail view") + "\n")
 
 	b.WriteString("\n")
 	b.WriteString(styles.Title.Render("In Namespace Switcher"))

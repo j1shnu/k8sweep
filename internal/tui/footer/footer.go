@@ -1,6 +1,7 @@
 package footer
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -36,8 +37,8 @@ func (m Model) View() string {
 			continue
 		}
 		help := b.Help()
-		parts = append(parts, "["+help.Key+"] "+help.Desc)
+		parts = append(parts, fmt.Sprintf("%s %s", styles.LabelText.Render("["+help.Key+"]"), styles.FooterHelp.Render(help.Desc)))
 	}
 	line := strings.Join(parts, "  ")
-	return styles.FooterHelp.Render(line)
+	return line
 }

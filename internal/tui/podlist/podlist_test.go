@@ -2,6 +2,7 @@ package podlist
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jprasad/k8sweep/internal/k8s"
@@ -430,17 +431,48 @@ func TestView_ShowsPaginationFooter(t *testing.T) {
 	m := New().SetItems(manyPods(100)).SetSize(120, 10)
 
 	view := m.View()
-	assert.Contains(t, view, "Showing 1-8 of 100 Pods [page 1/13]")
+	assert.Contains(t, view, "Showing 1-8 of 100 Pods")
+	assert.Contains(t, view, "page 1/13")
 	assert.Contains(t, view, "[l]/[→] next | [h]/[←] previous")
 
 	m = m.PageDown()
 	view = m.View()
-	assert.Contains(t, view, "Showing 9-16 of 100 Pods [page 2/13]")
+	assert.Contains(t, view, "Showing 9-16 of 100 Pods")
+	assert.Contains(t, view, "page 2/13")
 }
 
 func TestView_HidesPaginationFooter_ForSinglePage(t *testing.T) {
 	m := New().SetItems(manyPods(2)).SetSize(120, 10)
 	view := m.View()
-	assert.NotContains(t, view, "Showing 1-2 of 2 Pods [page 1/1]")
+	assert.NotContains(t, view, "Showing 1-2 of 2 Pods")
 	assert.NotContains(t, view, "[l]/[→] next | [h]/[←] previous")
+}
+
+func TestSmartTruncateMiddle(t *testing.T) {
+	in := "checkout-api-worker-payments-us-east-1-canary-76f8dfc4f8-r49xm"
+	got := smartTruncateMiddle(in, 18)
+	assert.Equal(t, 18, len([]rune(got)))
+	assert.Contains(t, got, "...")
+	assert.True(t, strings.HasPrefix(got, "checkout"))
+	assert.True(t, strings.HasSuffix(got, "r49xm"))
+}
+
+func TestSmartTruncateMiddle_ShortValueUnchanged(t *testing.T) {
+	in := "short-pod"
+	assert.Equal(t, in, smartTruncateMiddle(in, 45))
+}
+
+func TestView_LongNamesRemainDistinguishable(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "checkout-api-worker-payments-us-east-1-canary-76f8dfc4f8-r49xm", Namespace: "default", Status: k8s.StatusRunning},
+		{Name: "checkout-api-worker-payments-us-east-1-canary-76f8dfc4f8-v8n2q", Namespace: "default", Status: k8s.StatusRunning},
+	}
+
+	m := New().SetItems(pods).SetSize(120, 10)
+	view := m.View()
+
+	assert.Contains(t, view, "checkout-api-worker")
+	assert.Contains(t, view, "...")
+	assert.Contains(t, view, "4f8-r49xm")
+	assert.Contains(t, view, "4f8-v8n2q")
 }

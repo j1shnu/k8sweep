@@ -195,6 +195,10 @@ func derivePodStatus(pod corev1.Pod) PodStatus {
 		if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
 			return StatusCrashLoopBack
 		}
+		if cs.State.Waiting != nil &&
+			(cs.State.Waiting.Reason == "ImagePullBackOff" || cs.State.Waiting.Reason == "ErrImagePull") {
+			return StatusImagePullErr
+		}
 		if cs.State.Terminated != nil && cs.State.Terminated.Reason == "OOMKilled" {
 			return StatusOOMKilled
 		}
@@ -209,6 +213,10 @@ func derivePodStatus(pod corev1.Pod) PodStatus {
 	for _, cs := range pod.Status.InitContainerStatuses {
 		if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
 			return StatusCrashLoopBack
+		}
+		if cs.State.Waiting != nil &&
+			(cs.State.Waiting.Reason == "ImagePullBackOff" || cs.State.Waiting.Reason == "ErrImagePull") {
+			return StatusImagePullErr
 		}
 		if cs.State.Terminated != nil && cs.State.Terminated.Reason == "OOMKilled" {
 			return StatusOOMKilled

@@ -13,6 +13,11 @@ import (
 // spinnerFrames are the animation frames for the loading spinner.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+const (
+	namespaceColWidth = 20
+	nameColWidth      = 45
+)
+
 // loadingFacts are fun facts shown while waiting for pods to load.
 var loadingFacts = []string{
 	"Did you know? A pod of whales can have up to 1,000 members.",
@@ -575,7 +580,7 @@ func (m Model) View() string {
 		status := statusStyle.Render(fmt.Sprintf("%-16s", pod.Status))
 
 		age := formatAge(pod.Age)
-		name := pod.Name
+		name := smartTruncateMiddle(pod.Name, nameColWidth)
 
 		metricsStr := ""
 		if m.metricsAvailable {
@@ -590,11 +595,11 @@ func (m Model) View() string {
 
 		var line string
 		if m.showNamespace {
-			line = fmt.Sprintf("%s%s%-20s %-45s %s  %s  restarts: %d%s",
-				pointer, checkbox, pod.Namespace, name, status, age, pod.RestartCount, metricsStr)
+			line = fmt.Sprintf("%s%s%-*s %-*s %s  %s  restarts: %d%s",
+				pointer, checkbox, namespaceColWidth, pod.Namespace, nameColWidth, name, status, age, pod.RestartCount, metricsStr)
 		} else {
-			line = fmt.Sprintf("%s%s%-45s %s  %s  restarts: %d%s",
-				pointer, checkbox, name, status, age, pod.RestartCount, metricsStr)
+			line = fmt.Sprintf("%s%s%-*s %s  %s  restarts: %d%s",
+				pointer, checkbox, nameColWidth, name, status, age, pod.RestartCount, metricsStr)
 		}
 
 		if isCursor {
@@ -612,13 +617,38 @@ func (m Model) View() string {
 	if totalPages > 1 {
 		showStart := start + 1
 		showEnd := end
-		pager := fmt.Sprintf("Showing %d-%d of %d Pods [page %d/%d] | [l]/[→] next | [h]/[←] previous",
-			showStart, showEnd, len(m.items), page, totalPages)
+		pager := fmt.Sprintf("Showing %d-%d of %d Pods [%s] | %s/%s next | %s/%s previous",
+			showStart, showEnd, len(m.items),
+			styles.LabelText.Render(fmt.Sprintf("page %d/%d", page, totalPages)),
+			styles.LabelText.Render("[l]"),
+			styles.LabelText.Render("[→]"),
+			styles.LabelText.Render("[h]"),
+			styles.LabelText.Render("[←]"),
+		)
 		b.WriteString("\n")
 		b.WriteString(styles.FooterHelp.Render("  " + pager))
 	}
 
 	return b.String()
+}
+
+func smartTruncateMiddle(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= width {
+		return value
+	}
+	if width <= 3 {
+		return string(runes[:width])
+	}
+
+	keep := width - 3
+	left := keep/2 + keep%2
+	right := keep / 2
+
+	return string(runes[:left]) + "..." + string(runes[len(runes)-right:])
 }
 
 // renderHeaderRow renders the column header with sort indicator.
@@ -635,16 +665,19 @@ func (m Model) renderHeaderRow() string {
 
 	var header string
 	if m.showNamespace {
-		header = fmt.Sprintf("%s%-20s %-45s %-16s  %-5s  %-10s",
+		header = fmt.Sprintf("%s%-*s %-*s %-16s  %-5s  %-10s",
 			prefix,
+			namespaceColWidth,
 			"NAMESPACE"+indicator(SortByName),
+			nameColWidth,
 			"NAME"+indicator(SortByName),
 			"STATUS"+indicator(SortByStatus),
 			"AGE"+indicator(SortByAge),
 			"RESTARTS"+indicator(SortByRestarts))
 	} else {
-		header = fmt.Sprintf("%s%-45s %-16s  %-5s  %-10s",
+		header = fmt.Sprintf("%s%-*s %-16s  %-5s  %-10s",
 			prefix,
+			nameColWidth,
 			"NAME"+indicator(SortByName),
 			"STATUS"+indicator(SortByStatus),
 			"AGE"+indicator(SortByAge),
@@ -657,7 +690,7 @@ func (m Model) renderHeaderRow() string {
 			"MEM"+indicator(SortByMemory))
 	}
 
-	return styles.FooterHelp.Render(header)
+	return styles.LabelText.Render(header)
 }
 
 // formatCPU formats CPU millicores for display (e.g., "250m", "1.5").
