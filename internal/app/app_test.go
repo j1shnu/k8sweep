@@ -298,6 +298,7 @@ func TestBuildStatusSummary(t *testing.T) {
 		{Status: k8s.StatusFailed},
 		{Status: k8s.StatusImagePullErr},
 		{Status: k8s.StatusOOMKilled},
+		{Status: k8s.StatusEvicted},
 		{Status: k8s.StatusPending},
 		{Status: k8s.StatusTerminating},
 		{Status: k8s.StatusRunning},
@@ -308,6 +309,7 @@ func TestBuildStatusSummary(t *testing.T) {
 	assert.Equal(t, 2, s.CritCrash)
 	assert.Equal(t, 1, s.CritImgErr)
 	assert.Equal(t, 1, s.CritOOM)
+	assert.Equal(t, 1, s.CritEvicted)
 	assert.Equal(t, 1, s.WarnPending)
 	assert.Equal(t, 1, s.WarnTerminating)
 	assert.Equal(t, 1, s.OKRunning)
@@ -318,6 +320,7 @@ func TestFilterOn_HeaderSummaryUsesAllPods(t *testing.T) {
 	pods := []k8s.PodInfo{
 		{Name: "failed-1", Namespace: "default", Status: k8s.StatusFailed},
 		{Name: "pending-1", Namespace: "default", Status: k8s.StatusPending},
+		{Name: "evicted-1", Namespace: "default", Status: k8s.StatusEvicted},
 	}
 	m := newTestModel(pods)
 
@@ -327,5 +330,6 @@ func TestFilterOn_HeaderSummaryUsesAllPods(t *testing.T) {
 	view := updated.header.View()
 	assert.Contains(t, view, "Crit:")
 	assert.Contains(t, view, "Warn:")
+	assert.Contains(t, view, "1 Evict")
 	assert.Contains(t, view, "1 Pend")
 }

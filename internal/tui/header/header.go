@@ -13,6 +13,7 @@ type StatusSummary struct {
 	CritCrash       int
 	CritImgErr      int
 	CritOOM         int
+	CritEvicted     int
 	WarnPending     int
 	WarnTerminating int
 	OKRunning       int
@@ -140,6 +141,9 @@ func (m Model) renderSummary() string {
 	}
 	if m.statusSummary.CritOOM > 0 {
 		critItems = append(critItems, fmt.Sprintf("%d OOM", m.statusSummary.CritOOM))
+	}
+	if m.statusSummary.CritEvicted > 0 {
+		critItems = append(critItems, fmt.Sprintf("%d Evict", m.statusSummary.CritEvicted))
 	}
 	if len(critItems) > 0 {
 		parts = append(parts, styles.CritSummary.Render("Crit: "+strings.Join(critItems, ", ")))

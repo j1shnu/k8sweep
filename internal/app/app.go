@@ -1009,6 +1009,8 @@ func buildStatusSummary(pods []k8s.PodInfo) header.StatusSummary {
 			s.CritImgErr++
 		case k8s.StatusOOMKilled:
 			s.CritOOM++
+		case k8s.StatusEvicted:
+			s.CritEvicted++
 		case k8s.StatusPending:
 			s.WarnPending++
 		case k8s.StatusTerminating:
