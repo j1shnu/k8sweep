@@ -47,7 +47,7 @@ type Model struct {
 	selected         map[string]struct{} // key: "namespace/name"
 	width            int
 	height           int
-	offset           int  // viewport scroll offset
+	offset           int // viewport scroll offset
 	loading          bool
 	spinnerFrame     int  // current spinner animation frame index
 	factIndex        int  // current fact message index
@@ -61,8 +61,8 @@ type Model struct {
 // New creates an empty pod list model.
 func New() Model {
 	return Model{
-		selected: make(map[string]struct{}),
-		loading:  true,
+		selected:  make(map[string]struct{}),
+		loading:   true,
 		factIndex: randomFactIndex(),
 	}
 }
@@ -175,14 +175,17 @@ func (m Model) SetItemsSorted(pods []k8s.PodInfo) Model {
 	}
 
 	// Prune selection to only pods still present
-	newSelected := make(map[string]struct{}, len(m.selected))
-	presentKeys := make(map[string]struct{}, len(sorted))
-	for _, p := range sorted {
-		presentKeys[podKey(p)] = struct{}{}
-	}
-	for k := range m.selected {
-		if _, ok := presentKeys[k]; ok {
-			newSelected[k] = struct{}{}
+	newSelected := make(map[string]struct{})
+	if len(m.selected) > 0 {
+		newSelected = make(map[string]struct{}, len(m.selected))
+		presentKeys := make(map[string]struct{}, len(sorted))
+		for _, p := range sorted {
+			presentKeys[podKey(p)] = struct{}{}
+		}
+		for k := range m.selected {
+			if _, ok := presentKeys[k]; ok {
+				newSelected[k] = struct{}{}
+			}
 		}
 	}
 

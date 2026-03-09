@@ -39,6 +39,7 @@ const (
 	fetchTimeout      = 15 * time.Second
 	fetchTimeoutAllNS = 120 * time.Second
 	metricsInterval   = 30 * time.Second
+	searchDebounce    = 120 * time.Millisecond
 )
 
 // fetchSeq is a global atomic counter used to tag pod fetch requests.
@@ -73,6 +74,7 @@ type Model struct {
 	// Search
 	searchInput textinput.Model
 	searchQuery string // active name filter (empty = no filter)
+	searchSeq   uint64 // increments on each search input to discard stale debounce ticks
 
 	allPods        []k8s.PodInfo // cached full pod list for client-side filtering
 	totalPodCount  int
@@ -194,6 +196,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return newModel, loadingTickCmd()
 		}
 		return m, nil
+
+	case SearchDebouncedMsg:
+		return m.handleSearchDebounced(msg), nil
 
 	case TickMsg:
 		// Metrics-only tick (pod updates come from watcher)
@@ -644,10 +649,12 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel := m
 		newModel.state = stateBrowsing
 		newModel.searchQuery = m.searchInput.Value()
+		newModel.searchSeq++
 		// Re-apply filters with confirmed search
 		if m.allPods != nil {
 			displayPods := applyFilters(m.allPods, m.filter, newModel.searchQuery)
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
+			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods)))
 		}
 		if newModel.searchQuery != "" {
 			newModel.statusMsg = "Search: " + newModel.searchQuery
@@ -660,10 +667,12 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel := m
 		newModel.state = stateBrowsing
 		newModel.searchQuery = ""
+		newModel.searchSeq++
 		// Clear search filter
 		if m.allPods != nil {
 			displayPods := applyFilters(m.allPods, m.filter, "")
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
+			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods)))
 		}
 		newModel.statusMsg = ""
 		return newModel, nil
@@ -673,15 +682,10 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	newInput, cmd := m.searchInput.Update(msg)
 	newModel := m
 	newModel.searchInput = newInput
-
-	// Real-time filter as you type
 	query := newInput.Value()
-	if m.allPods != nil {
-		displayPods := applyFilters(m.allPods, m.filter, query)
-		newModel.podList = m.podList.SetItemsSorted(displayPods)
-	}
+	newModel.searchSeq = m.searchSeq + 1
 
-	return newModel, cmd
+	return newModel, tea.Batch(cmd, searchDebounceCmd(newModel.searchSeq, query))
 }
 
 // handleSearchMsg handles non-key messages (like blink) while in search mode.
@@ -690,6 +694,20 @@ func (m Model) handleSearchMsg(msg tea.Msg) (Model, tea.Cmd) {
 	newModel := m
 	newModel.searchInput = newInput
 	return newModel, cmd
+}
+
+func (m Model) handleSearchDebounced(msg SearchDebouncedMsg) Model {
+	if m.state != stateSearching || msg.Seq != m.searchSeq {
+		return m
+	}
+	if m.allPods == nil {
+		return m
+	}
+	displayPods := applyFilters(m.allPods, m.filter, msg.Query)
+	newModel := m
+	newModel.podList = m.podList.SetItemsSorted(displayPods)
+	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods)))
+	return newModel
 }
 
 // --- Namespace switcher ---
@@ -909,6 +927,12 @@ func loadingTickCmd() tea.Cmd {
 	})
 }
 
+func searchDebounceCmd(seq uint64, query string) tea.Cmd {
+	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
+		return SearchDebouncedMsg{Seq: seq, Query: query}
+	})
+}
+
 // --- Helpers ---
 
 func buildPodCountLabel(filterActive bool, shown, total int) string {
@@ -944,7 +968,11 @@ func filterByName(pods []k8s.PodInfo, query string) []k8s.PodInfo {
 	q := strings.ToLower(query)
 	filtered := make([]k8s.PodInfo, 0, len(pods))
 	for _, p := range pods {
-		if strings.Contains(strings.ToLower(p.Name), q) {
+		name := p.NameLower
+		if name == "" {
+			name = strings.ToLower(p.Name)
+		}
+		if strings.Contains(name, q) {
 			filtered = append(filtered, p)
 		}
 	}
