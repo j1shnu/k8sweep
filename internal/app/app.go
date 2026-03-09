@@ -290,7 +290,7 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	newModel.header = m.header.Update(msg)
 	newModel.podList = m.podList.SetSize(msg.Width, listHeight)
 	newModel.footer = m.footer.SetWidth(msg.Width)
-	newModel.help = m.help.SetWidth(msg.Width)
+	newModel.help = m.help.SetSize(msg.Width, msg.Height-common.HeaderHeight-common.FooterHeight-1)
 	newModel.podDetail = m.podDetail.SetSize(msg.Width, msg.Height-common.HeaderHeight-1)
 	newModel.width = msg.Width
 	newModel.height = msg.Height
@@ -451,6 +451,16 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleHelpKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		newModel := m
+		newModel.help = m.help.ScrollDown()
+		return newModel, nil
+	case "k", "up":
+		newModel := m
+		newModel.help = m.help.ScrollUp()
+		return newModel, nil
+	}
 	if key.Matches(msg, m.keys.Help) || msg.String() == "esc" {
 		newModel := m
 		newModel.state = stateBrowsing
@@ -464,7 +474,7 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Help):
 		newModel := m
 		newModel.state = stateHelp
-		newModel.help = m.help.SetWidth(m.width)
+		newModel.help = m.help.SetSize(m.width, m.height-common.HeaderHeight-common.FooterHeight-1)
 		return newModel, nil
 	case key.Matches(msg, m.keys.Up):
 		newModel := m
