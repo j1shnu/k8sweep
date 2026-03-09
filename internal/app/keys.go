@@ -54,11 +54,11 @@ func DefaultKeyMap() KeyMap {
 		),
 		Delete: key.NewBinding(
 			key.WithKeys("enter"),
-			key.WithHelp("enter", "delete selected pods"),
+			key.WithHelp("enter", "delete pods"),
 		),
 		ForceDelete: key.NewBinding(
 			key.WithKeys("x"),
-			key.WithHelp("x", "force delete selected pods"),
+			key.WithHelp("x", "force delete pods"),
 		),
 		Namespace: key.NewBinding(
 			key.WithKeys("n"),
@@ -78,7 +78,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Sort: key.NewBinding(
 			key.WithKeys("s"),
-			key.WithHelp("s", "cycle sort column"),
+			key.WithHelp("s", "sort by column"),
 		),
 		Info: key.NewBinding(
 			key.WithKeys("i"),

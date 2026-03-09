@@ -7,16 +7,18 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 
 ## Features
 
-- Interactive TUI with vim-style navigation (`j`/`k`, `gg`, `G`)
+- Interactive TUI with vim-style navigation (`j`/`k`, `gg`, `G`, page switch with `h`/`l` or `←`/`→`)
 - Real-time pod updates via Kubernetes Watch API (no polling)
 - Multi-select pods for batch deletion with confirmation
 - Force delete stuck pods (`x`) with graceful shutdown bypass
 - Sort columns by name, status, age, restarts, CPU, or memory (`s` to cycle asc/desc)
 - Search/filter pods by name in real-time (`/` to search)
+- Smart pod-name truncation (middle ellipsis) to keep similar long pod names distinguishable
 - Pod detail panel with labels, annotations, containers, and conditions (`i` to inspect)
-- Filter toggle to show only dirty pods
+- Filter toggle to show only dirty pods (turning filter off resets to page 1)
 - CPU/memory metrics display (when metrics-server is available)
 - Namespace switcher with fuzzy filtering
+- Header health summary (`Crit/Warn/OK`) with non-zero counts only
 - Standalone pod warnings (pods with no controller)
 - Status-colored pod list (red=Failed, cyan=Running, gray=Completed, orange=Evicted)
 - Respects `KUBECONFIG` env, `~/.kube/config`, and current context
@@ -70,7 +72,8 @@ k8sweep --namespace kube-system
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` / `↑` / `↓` | Navigate up / down |
+| `j` / `k` / `↑` / `↓` | Navigate up / down (within current page) |
+| `l` / `h` / `→` / `←` | Next / previous page |
 | `gg` | Go to first pod |
 | `G` | Go to last pod |
 | `space` | Toggle pod selection |
@@ -85,11 +88,17 @@ k8sweep --namespace kube-system
 | `x` | Force delete selected pods |
 | `r` | Refresh pod list |
 | `f` | Toggle dirty pod filter |
-| `s` | Cycle sort column (asc/desc) |
+| `s` | Sort by column (asc/desc) |
 | `i` | View pod details |
 | `n` | Switch namespace |
 | `?` | Toggle help overlay |
 | `q` / `Ctrl+C` | Quit |
+
+### Pagination
+
+- Discrete pages: row navigation does not auto-advance to next page.
+- Page footer appears only when there are multiple pages:
+  `Showing X-Y of N Pods [page P/T] | [l]/[→] next | [h]/[←] previous`
 
 ### In search mode
 
@@ -133,6 +142,7 @@ k8sweep considers these pod statuses as dirty — safe to clean up:
 | **Failed** | Pod phase is `Failed` |
 | **Evicted** | Pod status reason is `Evicted` |
 | **CrashLoopBackOff** | Container waiting with reason `CrashLoopBackOff` |
+| **ImagePullError** | Container waiting with reason `ImagePullBackOff` or `ErrImagePull` |
 | **OOMKilled** | Container terminated with reason `OOMKilled` (only if not currently running) |
 
 ## Development
