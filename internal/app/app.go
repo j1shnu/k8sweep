@@ -584,6 +584,10 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.allPods != nil {
 			displayPods := applyFilters(m.allPods, newModel.filter, m.activeSearchQuery())
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
+			// Turning filter OFF should reset pagination/cursor to page 1.
+			if !newFilter {
+				newModel.podList = newModel.podList.GoTop()
+			}
 			newModel.header = m.header.SetFilter(newFilter, buildPodCountLabel(newFilter, len(displayPods), len(m.allPods))).
 				SetStatusSummary(buildStatusSummary(m.allPods))
 			return newModel, nil

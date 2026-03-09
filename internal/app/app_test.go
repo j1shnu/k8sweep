@@ -333,3 +333,27 @@ func TestFilterOn_HeaderSummaryUsesAllPods(t *testing.T) {
 	assert.Contains(t, view, "1 Evict")
 	assert.Contains(t, view, "1 Pend")
 }
+
+func TestFilterOff_ResetsToFirstPage(t *testing.T) {
+	pods := manyPods(30)
+	pods[0].Status = k8s.StatusFailed
+	pods[1].Status = k8s.StatusFailed
+	pods[2].Status = k8s.StatusFailed
+
+	m := newTestModel(pods)
+	m.podList = m.podList.SetSize(120, 10)
+
+	// Turn filter ON and move to another page.
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = result.(Model)
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = result.(Model)
+
+	// Turn filter OFF: should reset to page 1 / first item.
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = result.(Model)
+
+	p := m.podList.CursorItem()
+	require.NotNil(t, p)
+	assert.Equal(t, "pod-01", p.Name)
+}
