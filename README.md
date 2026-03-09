@@ -25,7 +25,7 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 
 ## Demo
 
-[![asciicast](https://asciinema.org/a/V2p27lto4ZRfwxE5.svg)](https://asciinema.org/a/V2p27lto4ZRfwxE5)
+![k8sweep demo](docs/demo.gif)
 
 Live terminal demo showing page navigation, smart name truncation, filter toggle, Crit/Warn/OK header summary, and deleting a completed pod.
 
