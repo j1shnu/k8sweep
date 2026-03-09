@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -40,6 +41,18 @@ func samplePods() []k8s.PodInfo {
 		{Name: "completed-1", Namespace: "default", Status: k8s.StatusCompleted, Age: 4 * time.Hour},
 		{Name: "crash-1", Namespace: "default", Status: k8s.StatusCrashLoopBack, Age: 5 * time.Hour},
 	}
+}
+
+func manyPods(n int) []k8s.PodInfo {
+	pods := make([]k8s.PodInfo, 0, n)
+	for i := 1; i <= n; i++ {
+		pods = append(pods, k8s.PodInfo{
+			Name:      fmt.Sprintf("pod-%02d", i),
+			Namespace: "default",
+			Status:    k8s.StatusRunning,
+		})
+	}
+	return pods
 }
 
 func TestFilterToggleOn_WithCachedPods_NoRefetch(t *testing.T) {
@@ -207,4 +220,72 @@ func TestPodsLoaded_IntegrationWithFakeClient(t *testing.T) {
 	assert.Equal(t, 1, len(updated.allPods))
 	assert.Equal(t, 1, updated.podList.Len())
 	assert.Equal(t, "test-pod", updated.allPods[0].Name)
+}
+
+func TestPagingKeys_BrowsingMode(t *testing.T) {
+	m := newTestModel(manyPods(30))
+	m.podList = m.podList.SetSize(120, 10)
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	require.Nil(t, cmd)
+	updated := result.(Model)
+
+	p := updated.podList.CursorItem()
+	require.NotNil(t, p)
+	assert.Equal(t, "pod-09", p.Name)
+
+	result, cmd = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	require.Nil(t, cmd)
+	updated = result.(Model)
+	p = updated.podList.CursorItem()
+	require.NotNil(t, p)
+	assert.Equal(t, "pod-01", p.Name)
+}
+
+func TestPagingArrowKeys_BrowsingMode(t *testing.T) {
+	m := newTestModel(manyPods(30))
+	m.podList = m.podList.SetSize(120, 10)
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated := result.(Model)
+	p := updated.podList.CursorItem()
+	require.NotNil(t, p)
+	assert.Equal(t, "pod-09", p.Name)
+
+	result, _ = updated.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	updated = result.(Model)
+	p = updated.podList.CursorItem()
+	require.NotNil(t, p)
+	assert.Equal(t, "pod-01", p.Name)
+}
+
+func TestSingleStepNavigationStillWorks(t *testing.T) {
+	m := newTestModel(manyPods(30))
+	m.podList = m.podList.SetSize(120, 10)
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	updated := result.(Model)
+	p := updated.podList.CursorItem()
+	require.NotNil(t, p)
+	assert.Equal(t, "pod-02", p.Name)
+
+	result, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	updated = result.(Model)
+	p = updated.podList.CursorItem()
+	require.NotNil(t, p)
+	assert.Equal(t, "pod-01", p.Name)
+}
+
+func TestSingleStepNavigation_DoesNotCrossPage(t *testing.T) {
+	m := newTestModel(manyPods(30))
+	m.podList = m.podList.SetSize(120, 10)
+
+	for i := 0; i < 20; i++ {
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+		m = result.(Model)
+	}
+
+	p := m.podList.CursorItem()
+	require.NotNil(t, p)
+	assert.Equal(t, "pod-08", p.Name) // page size 8; clamped on page 1
 }

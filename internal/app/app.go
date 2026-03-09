@@ -472,6 +472,16 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel.podList = m.podList.MoveDown()
 		newModel.pendingG = false
 		return newModel, nil
+	case key.Matches(msg, m.keys.PageUp):
+		newModel := m
+		newModel.podList = m.podList.PageUp()
+		newModel.pendingG = false
+		return newModel, nil
+	case key.Matches(msg, m.keys.PageDown):
+		newModel := m
+		newModel.podList = m.podList.PageDown()
+		newModel.pendingG = false
+		return newModel, nil
 	case key.Matches(msg, m.keys.GoBottom):
 		newModel := m
 		newModel.podList = m.podList.GoBottom()

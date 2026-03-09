@@ -1,6 +1,7 @@
 package podlist
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/jprasad/k8sweep/internal/k8s"
@@ -15,6 +16,18 @@ func samplePods() []k8s.PodInfo {
 		{Name: "pod-4", Namespace: "default", Status: k8s.StatusEvicted},
 		{Name: "pod-5", Namespace: "default", Status: k8s.StatusCrashLoopBack},
 	}
+}
+
+func manyPods(n int) []k8s.PodInfo {
+	pods := make([]k8s.PodInfo, 0, n)
+	for i := 1; i <= n; i++ {
+		pods = append(pods, k8s.PodInfo{
+			Name:      fmt.Sprintf("pod-%02d", i),
+			Namespace: "default",
+			Status:    k8s.StatusRunning,
+		})
+	}
+	return pods
 }
 
 func TestNew(t *testing.T) {
@@ -79,7 +92,7 @@ func TestDeselectAll(t *testing.T) {
 
 func TestGetSelected(t *testing.T) {
 	m := New().SetItems(samplePods())
-	m = m.ToggleSelect() // pod-1
+	m = m.ToggleSelect()                       // pod-1
 	m = m.MoveDown().MoveDown().ToggleSelect() // pod-3
 
 	selected := m.GetSelected()
@@ -123,20 +136,17 @@ func TestView_WithPods(t *testing.T) {
 	assert.Contains(t, view, "Failed")
 }
 
-func TestScrolling(t *testing.T) {
-	m := New().SetItems(samplePods()).SetSize(120, 3) // only 3 visible rows
-	// Move to last item
-	for i := 0; i < 4; i++ {
+func TestRowNavigation_ClampedWithinPage(t *testing.T) {
+	m := New().SetItems(manyPods(30)).SetSize(120, 10) // page size = 8
+
+	for i := 0; i < 20; i++ {
 		m = m.MoveDown()
 	}
-	assert.Equal(t, 4, m.cursor)
-	assert.Equal(t, 2, m.offset) // offset should adjust
+	assert.Equal(t, 7, m.cursor) // last row of page 1
+	assert.Equal(t, 0, m.offset)
 
-	// Move back to top
-	for i := 0; i < 4; i++ {
-		m = m.MoveUp()
-	}
-	assert.Equal(t, 0, m.cursor)
+	m = m.MoveUp()
+	assert.Equal(t, 6, m.cursor)
 	assert.Equal(t, 0, m.offset)
 }
 
@@ -372,4 +382,65 @@ func TestCursorItem_WithPods(t *testing.T) {
 	p := m.CursorItem()
 	assert.NotNil(t, p)
 	assert.Equal(t, "pod-1", p.Name)
+}
+
+func TestPageDown_PageUp(t *testing.T) {
+	m := New().SetItems(manyPods(30)).SetSize(120, 10)
+
+	m = m.PageDown()
+	assert.Equal(t, 8, m.cursor)
+	assert.Equal(t, 8, m.offset)
+	p := m.CursorItem()
+	assert.NotNil(t, p)
+	assert.Equal(t, "pod-09", p.Name)
+
+	m = m.PageUp()
+	assert.Equal(t, 0, m.cursor)
+	assert.Equal(t, 0, m.offset)
+}
+
+func TestPageDown_ClampedAtEnd(t *testing.T) {
+	m := New().SetItems(manyPods(12)).SetSize(120, 10)
+
+	for i := 0; i < 5; i++ {
+		m = m.PageDown()
+	}
+
+	assert.Equal(t, 8, m.cursor)
+	assert.Equal(t, 8, m.offset)
+	p := m.CursorItem()
+	assert.NotNil(t, p)
+	assert.Equal(t, "pod-09", p.Name)
+}
+
+func TestPageUp_ClampedAtStart(t *testing.T) {
+	m := New().SetItems(manyPods(30)).SetSize(120, 10)
+	m = m.GoBottom()
+	m = m.PageUp()
+	m = m.PageUp()
+	m = m.PageUp()
+	m = m.PageUp()
+	m = m.PageUp()
+
+	assert.Equal(t, 0, m.offset)
+	assert.Equal(t, 5, m.cursor)
+}
+
+func TestView_ShowsPaginationFooter(t *testing.T) {
+	m := New().SetItems(manyPods(100)).SetSize(120, 10)
+
+	view := m.View()
+	assert.Contains(t, view, "Showing 1-8 of 100 Pods [page 1/13]")
+	assert.Contains(t, view, "[l]/[→] next | [h]/[←] previous")
+
+	m = m.PageDown()
+	view = m.View()
+	assert.Contains(t, view, "Showing 9-16 of 100 Pods [page 2/13]")
+}
+
+func TestView_HidesPaginationFooter_ForSinglePage(t *testing.T) {
+	m := New().SetItems(manyPods(2)).SetSize(120, 10)
+	view := m.View()
+	assert.NotContains(t, view, "Showing 1-2 of 2 Pods [page 1/1]")
+	assert.NotContains(t, view, "[l]/[→] next | [h]/[←] previous")
 }

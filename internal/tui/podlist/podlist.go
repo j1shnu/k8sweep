@@ -47,7 +47,7 @@ type Model struct {
 	selected         map[string]struct{} // key: "namespace/name"
 	width            int
 	height           int
-	offset           int // viewport scroll offset
+	offset           int // current page start index
 	loading          bool
 	spinnerFrame     int  // current spinner animation frame index
 	factIndex        int  // current fact message index
@@ -162,17 +162,7 @@ func (m Model) SetItemsSorted(pods []k8s.PodInfo) Model {
 		}
 	}
 
-	// Adjust offset so cursor stays visible
-	newOffset := m.offset
-	visibleRows := m.height
-	if visibleRows <= 0 {
-		visibleRows = 10
-	}
-	if newCursor < newOffset {
-		newOffset = newCursor
-	} else if newCursor >= newOffset+visibleRows {
-		newOffset = newCursor - visibleRows + 1
-	}
+	newOffset := m.pageStartForCursor(newCursor)
 
 	// Prune selection to only pods still present
 	newSelected := make(map[string]struct{})
@@ -224,17 +214,7 @@ func (m Model) SetSort(col SortColumn, order SortOrder) Model {
 		}
 	}
 
-	// Adjust offset so cursor is visible
-	newOffset := m.offset
-	visibleRows := m.height
-	if visibleRows <= 0 {
-		visibleRows = 10
-	}
-	if newCursor < newOffset {
-		newOffset = newCursor
-	} else if newCursor >= newOffset+visibleRows {
-		newOffset = newCursor - visibleRows + 1
-	}
+	newOffset := m.pageStartForCursor(newCursor)
 
 	return Model{
 		items:            sorted,
@@ -392,13 +372,7 @@ func (m Model) GoBottom() Model {
 	}
 	newModel := m
 	newModel.cursor = len(m.items) - 1
-	visibleRows := m.height
-	if visibleRows <= 0 {
-		visibleRows = 10
-	}
-	if newModel.cursor >= visibleRows {
-		newModel.offset = newModel.cursor - visibleRows + 1
-	}
+	newModel.offset = m.pageStartForCursor(newModel.cursor)
 	return newModel
 }
 
@@ -407,14 +381,12 @@ func (m Model) MoveUp() Model {
 	if len(m.items) == 0 {
 		return m
 	}
+	start, _ := m.currentPageBounds()
 	newModel := m
-	newModel.cursor = m.cursor - 1
-	if newModel.cursor < 0 {
-		newModel.cursor = 0
+	if m.cursor > start {
+		newModel.cursor = m.cursor - 1
 	}
-	if newModel.cursor < newModel.offset {
-		newModel.offset = newModel.cursor
-	}
+	newModel.offset = start
 	return newModel
 }
 
@@ -423,19 +395,130 @@ func (m Model) MoveDown() Model {
 	if len(m.items) == 0 {
 		return m
 	}
+	start, end := m.currentPageBounds()
+	last := end - 1
 	newModel := m
-	newModel.cursor = m.cursor + 1
-	if newModel.cursor >= len(m.items) {
-		newModel.cursor = len(m.items) - 1
+	if m.cursor < last {
+		newModel.cursor = m.cursor + 1
 	}
-	visibleRows := m.height
-	if visibleRows <= 0 {
-		visibleRows = 10
+	newModel.offset = start
+	return newModel
+}
+
+// PageUp moves the viewport and cursor up by one page with one-row overlap.
+func (m Model) PageUp() Model {
+	if len(m.items) == 0 {
+		return m
 	}
-	if newModel.cursor >= newModel.offset+visibleRows {
-		newModel.offset = newModel.cursor - visibleRows + 1
+	pageSize := m.pageSize()
+	currentPage := m.currentPage()
+	if currentPage == 0 {
+		return m
+	}
+	currentStart, _ := m.currentPageBounds()
+	row := m.cursor - currentStart
+	targetPage := currentPage - 1
+	targetStart := targetPage * pageSize
+	targetEnd := targetStart + pageSize
+	if targetEnd > len(m.items) {
+		targetEnd = len(m.items)
+	}
+	newModel := m
+	newModel.offset = targetStart
+	newModel.cursor = targetStart + row
+	if newModel.cursor >= targetEnd {
+		newModel.cursor = targetEnd - 1
 	}
 	return newModel
+}
+
+// PageDown moves the viewport and cursor down by one page with one-row overlap.
+func (m Model) PageDown() Model {
+	if len(m.items) == 0 {
+		return m
+	}
+	pageSize := m.pageSize()
+	currentPage := m.currentPage()
+	totalPages := m.totalPages()
+	if currentPage >= totalPages-1 {
+		return m
+	}
+	currentStart, _ := m.currentPageBounds()
+	row := m.cursor - currentStart
+	targetPage := currentPage + 1
+	targetStart := targetPage * pageSize
+	targetEnd := targetStart + pageSize
+	if targetEnd > len(m.items) {
+		targetEnd = len(m.items)
+	}
+	newModel := m
+	newModel.offset = targetStart
+	newModel.cursor = targetStart + row
+	if newModel.cursor >= targetEnd {
+		newModel.cursor = targetEnd - 1
+	}
+	return newModel
+}
+
+func (m Model) pageSize() int {
+	// page size is viewport-sized rows, excluding header + pager line
+	rows := m.height
+	if rows <= 0 {
+		rows = 10
+	}
+	size := rows - 2
+	if size < 1 {
+		size = 1
+	}
+	return size
+}
+
+func (m Model) totalPages() int {
+	if len(m.items) == 0 {
+		return 1
+	}
+	size := m.pageSize()
+	return (len(m.items) + size - 1) / size
+}
+
+func (m Model) currentPage() int {
+	if len(m.items) == 0 {
+		return 0
+	}
+	size := m.pageSize()
+	page := m.cursor / size
+	lastPage := m.totalPages() - 1
+	if page > lastPage {
+		return lastPage
+	}
+	return page
+}
+
+func (m Model) pageStartForCursor(cursor int) int {
+	if len(m.items) == 0 {
+		return 0
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= len(m.items) {
+		cursor = len(m.items) - 1
+	}
+	return (cursor / m.pageSize()) * m.pageSize()
+}
+
+func (m Model) currentPageBounds() (start, end int) {
+	if len(m.items) == 0 {
+		return 0, 0
+	}
+	page := m.currentPage()
+	size := m.pageSize()
+	start = page * size
+	end = start + size
+	if end > len(m.items) {
+		end = len(m.items)
+	}
+	return start, end
 }
 
 // GetSelected returns copies of all selected pods.
@@ -466,24 +549,14 @@ func (m Model) View() string {
 		return styles.FooterHelp.Render("  No pods found.")
 	}
 
-	visibleRows := m.height
-	if visibleRows <= 0 {
-		visibleRows = 10
-	}
-
 	var b strings.Builder
 
 	// Render column header row
 	b.WriteString(m.renderHeaderRow())
 	b.WriteString("\n")
-	visibleRows-- // header takes one row
+	start, end := m.currentPageBounds()
 
-	end := m.offset + visibleRows
-	if end > len(m.items) {
-		end = len(m.items)
-	}
-
-	for i := m.offset; i < end; i++ {
+	for i := start; i < end; i++ {
 		pod := m.items[i]
 		isCursor := i == m.cursor
 		_, isSelected := m.selected[podKey(pod)]
@@ -532,6 +605,17 @@ func (m Model) View() string {
 		if i < end-1 {
 			b.WriteString("\n")
 		}
+	}
+
+	page := m.currentPage() + 1
+	totalPages := m.totalPages()
+	if totalPages > 1 {
+		showStart := start + 1
+		showEnd := end
+		pager := fmt.Sprintf("Showing %d-%d of %d Pods [page %d/%d] | [l]/[→] next | [h]/[←] previous",
+			showStart, showEnd, len(m.items), page, totalPages)
+		b.WriteString("\n")
+		b.WriteString(styles.FooterHelp.Render("  " + pager))
 	}
 
 	return b.String()
