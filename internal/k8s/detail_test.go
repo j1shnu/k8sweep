@@ -45,9 +45,9 @@ func TestGetPodDetail(t *testing.T) {
 			},
 		},
 		Status: corev1.PodStatus{
-			Phase:  corev1.PodRunning,
-			PodIP:  "10.0.0.5",
-			HostIP: "192.168.1.1",
+			Phase:    corev1.PodRunning,
+			PodIP:    "10.0.0.5",
+			HostIP:   "192.168.1.1",
 			QOSClass: corev1.PodQOSBurstable,
 			ContainerStatuses: []corev1.ContainerStatus{
 				{
@@ -66,7 +66,7 @@ func TestGetPodDetail(t *testing.T) {
 		},
 	}
 
-	cs := fake.NewSimpleClientset(pod)
+	cs := fake.NewClientset(pod)
 	client := NewClientFromClientset(cs, ClusterInfo{Namespace: "default"})
 
 	detail, err := GetPodDetail(context.Background(), client, "default", "test-pod")
@@ -104,7 +104,7 @@ func TestGetPodDetail(t *testing.T) {
 }
 
 func TestGetPodDetail_NotFound(t *testing.T) {
-	cs := fake.NewSimpleClientset()
+	cs := fake.NewClientset()
 	client := NewClientFromClientset(cs, ClusterInfo{Namespace: "default"})
 
 	_, err := GetPodDetail(context.Background(), client, "default", "nonexistent")
@@ -124,7 +124,7 @@ func TestGetPodDetail_NoOwner(t *testing.T) {
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
-	cs := fake.NewSimpleClientset(pod)
+	cs := fake.NewClientset(pod)
 	client := NewClientFromClientset(cs, ClusterInfo{Namespace: "default"})
 
 	detail, err := GetPodDetail(context.Background(), client, "default", "orphan-pod")
@@ -151,7 +151,7 @@ func TestGetPodDetail_WaitingContainer(t *testing.T) {
 		},
 	}
 
-	cs := fake.NewSimpleClientset(pod)
+	cs := fake.NewClientset(pod)
 	client := NewClientFromClientset(cs, ClusterInfo{Namespace: "default"})
 
 	detail, err := GetPodDetail(context.Background(), client, "default", "waiting-pod")

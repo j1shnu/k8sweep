@@ -21,7 +21,7 @@ func TestPodWatcher_InitialList(t *testing.T) {
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
-	cs := fake.NewSimpleClientset(pod)
+	cs := fake.NewClientset(pod)
 	w := NewPodWatcher(cs, "default")
 	w.Start()
 	defer w.Stop()
@@ -45,7 +45,7 @@ func TestPodWatcher_DynamicUpdate(t *testing.T) {
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
-	cs := fake.NewSimpleClientset(pod)
+	cs := fake.NewClientset(pod)
 	w := NewPodWatcher(cs, "default")
 	w.Start()
 	defer w.Stop()
@@ -74,7 +74,7 @@ func TestPodWatcher_DynamicUpdate(t *testing.T) {
 }
 
 func TestPodWatcher_Stop_ClosesChannel(t *testing.T) {
-	cs := fake.NewSimpleClientset()
+	cs := fake.NewClientset()
 	w := NewPodWatcher(cs, "default")
 	w.Start()
 
@@ -103,7 +103,7 @@ func TestPodWatcher_ListPods_FromCache(t *testing.T) {
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 
-	cs := fake.NewSimpleClientset(pod)
+	cs := fake.NewClientset(pod)
 	w := NewPodWatcher(cs, "default")
 	w.Start()
 	defer w.Stop()
@@ -117,7 +117,7 @@ func TestPodWatcher_ListPods_FromCache(t *testing.T) {
 }
 
 func TestPodWatcher_StopIsIdempotent(t *testing.T) {
-	cs := fake.NewSimpleClientset()
+	cs := fake.NewClientset()
 	w := NewPodWatcher(cs, "default")
 	w.Start()
 

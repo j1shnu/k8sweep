@@ -15,7 +15,7 @@ import (
 func newFakeClient(pods ...corev1.Pod) *Client {
 	objects := make([]corev1.Pod, len(pods))
 	copy(objects, pods)
-	cs := fake.NewSimpleClientset()
+	cs := fake.NewClientset()
 	for i := range objects {
 		_, _ = cs.CoreV1().Pods(objects[i].Namespace).Create(
 			context.Background(), &objects[i], metav1.CreateOptions{},
@@ -243,7 +243,7 @@ func TestTotalRestartCount(t *testing.T) {
 
 // newFakeClientWithNamespaces creates a fake client with specific namespaces and pods.
 func newFakeClientWithNamespaces(namespaces []string, pods ...corev1.Pod) *Client {
-	cs := fake.NewSimpleClientset()
+	cs := fake.NewClientset()
 	for _, ns := range namespaces {
 		_, _ = cs.CoreV1().Namespaces().Create(
 			context.Background(),
@@ -307,7 +307,7 @@ func TestListPodsAllNamespaces_ContextCancelled(t *testing.T) {
 
 func TestListPodsAllNamespaces_NoNamespaces(t *testing.T) {
 	// No namespaces created
-	cs := fake.NewSimpleClientset()
+	cs := fake.NewClientset()
 	client := NewClientFromClientset(cs, ClusterInfo{
 		ContextName: "test-context",
 		Namespace:   "default",
