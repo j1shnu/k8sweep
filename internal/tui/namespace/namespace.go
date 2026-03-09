@@ -174,10 +174,20 @@ func (m Model) View() string {
 	b.WriteString("\n\n")
 
 	maxShow := 15
-	for i, ns := range m.filtered {
-		if i >= maxShow {
-			break
-		}
+	start := 0
+	if m.cursor >= maxShow {
+		start = m.cursor - maxShow + 1
+	}
+	if start < 0 {
+		start = 0
+	}
+	end := start + maxShow
+	if end > len(m.filtered) {
+		end = len(m.filtered)
+	}
+
+	for i := start; i < end; i++ {
+		ns := m.filtered[i]
 		pointer := "  "
 		if i == m.cursor {
 			pointer = styles.Pointer.Render("> ")
