@@ -50,3 +50,10 @@ type TickMsg struct{}
 
 // LoadingTickMsg triggers a spinner/fact rotation while loading.
 type LoadingTickMsg struct{}
+
+// SearchDebouncedMsg applies search filtering after a short debounce delay.
+// Seq is used to discard stale debounce ticks.
+type SearchDebouncedMsg struct {
+	Seq   uint64
+	Query string
+}

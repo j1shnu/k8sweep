@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -15,6 +17,8 @@ import (
 // listPageSize is the number of pods to fetch per API call.
 // Matches kubectl's default chunk size.
 const listPageSize = 500
+
+const deleteWorkerCount = 12
 
 // ListPods fetches all pods in the given namespace using the client-go pager,
 // the same pagination mechanism kubectl uses internally. The pager handles
@@ -80,26 +84,7 @@ func FilterDirtyPods(pods []PodInfo) []PodInfo {
 // DeletePods deletes the given pods and returns results for each.
 // Stops early if the context is cancelled.
 func DeletePods(ctx context.Context, client *Client, pods []PodInfo) []DeleteResult {
-	results := make([]DeleteResult, 0, len(pods))
-	for _, pod := range pods {
-		if err := ctx.Err(); err != nil {
-			results = append(results, DeleteResult{
-				PodName:   pod.Name,
-				Namespace: pod.Namespace,
-				Success:   false,
-				Error:     err,
-			})
-			continue
-		}
-		err := client.Clientset().CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
-		results = append(results, DeleteResult{
-			PodName:   pod.Name,
-			Namespace: pod.Namespace,
-			Success:   err == nil,
-			Error:     err,
-		})
-	}
-	return results
+	return deletePodsWithOptions(ctx, client, pods, metav1.DeleteOptions{})
 }
 
 // mapPodToInfo maps a Kubernetes Pod to the domain PodInfo type.
@@ -111,6 +96,7 @@ func mapPodToInfo(pod corev1.Pod) PodInfo {
 	}
 	return PodInfo{
 		Name:         pod.Name,
+		NameLower:    strings.ToLower(pod.Name),
 		Namespace:    pod.Namespace,
 		Status:       derivePodStatus(pod),
 		Age:          time.Since(pod.CreationTimestamp.Time),
@@ -124,28 +110,71 @@ func mapPodToInfo(pod corev1.Pod) PodInfo {
 // bypassing graceful shutdown. Used for stuck Terminating pods.
 func ForceDeletePods(ctx context.Context, client *Client, pods []PodInfo) []DeleteResult {
 	var zero int64
-	results := make([]DeleteResult, 0, len(pods))
-	for _, pod := range pods {
-		if err := ctx.Err(); err != nil {
-			results = append(results, DeleteResult{
-				PodName:   pod.Name,
-				Namespace: pod.Namespace,
-				Success:   false,
-				Error:     err,
-			})
-			continue
-		}
-		err := client.Clientset().CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
-			GracePeriodSeconds: &zero,
-		})
-		results = append(results, DeleteResult{
-			PodName:   pod.Name,
-			Namespace: pod.Namespace,
-			Success:   err == nil,
-			Error:     err,
-		})
+	return deletePodsWithOptions(ctx, client, pods, metav1.DeleteOptions{
+		GracePeriodSeconds: &zero,
+	})
+}
+
+func deletePodsWithOptions(ctx context.Context, client *Client, pods []PodInfo, opts metav1.DeleteOptions) []DeleteResult {
+	if len(pods) == 0 {
+		return nil
 	}
-	return results
+
+	type deleteTask struct {
+		index int
+		pod   PodInfo
+	}
+	type indexedResult struct {
+		index  int
+		result DeleteResult
+	}
+
+	workerCount := deleteWorkerCount
+	if len(pods) < workerCount {
+		workerCount = len(pods)
+	}
+
+	tasks := make(chan deleteTask, len(pods))
+	resultsCh := make(chan indexedResult, len(pods))
+
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for task := range tasks {
+				err := ctx.Err()
+				if err == nil {
+					err = client.Clientset().CoreV1().Pods(task.pod.Namespace).Delete(ctx, task.pod.Name, opts)
+				}
+				resultsCh <- indexedResult{
+					index: task.index,
+					result: DeleteResult{
+						PodName:   task.pod.Name,
+						Namespace: task.pod.Namespace,
+						Success:   err == nil,
+						Error:     err,
+					},
+				}
+			}
+		}()
+	}
+
+	for i, pod := range pods {
+		tasks <- deleteTask{index: i, pod: pod}
+	}
+	close(tasks)
+
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	ordered := make([]DeleteResult, len(pods))
+	for result := range resultsCh {
+		ordered[result.index] = result.result
+	}
+	return ordered
 }
 
 // derivePodStatus determines the display status from the Kubernetes pod object.

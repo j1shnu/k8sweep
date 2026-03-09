@@ -6,15 +6,15 @@ import "time"
 type PodStatus string
 
 const (
-	StatusRunning        PodStatus = "Running"
-	StatusCompleted      PodStatus = "Completed"
-	StatusFailed         PodStatus = "Failed"
-	StatusEvicted        PodStatus = "Evicted"
-	StatusCrashLoopBack  PodStatus = "CrashLoopBackOff"
-	StatusOOMKilled      PodStatus = "OOMKilled"
-	StatusPending        PodStatus = "Pending"
-	StatusTerminating    PodStatus = "Terminating"
-	StatusUnknown        PodStatus = "Unknown"
+	StatusRunning       PodStatus = "Running"
+	StatusCompleted     PodStatus = "Completed"
+	StatusFailed        PodStatus = "Failed"
+	StatusEvicted       PodStatus = "Evicted"
+	StatusCrashLoopBack PodStatus = "CrashLoopBackOff"
+	StatusOOMKilled     PodStatus = "OOMKilled"
+	StatusPending       PodStatus = "Pending"
+	StatusTerminating   PodStatus = "Terminating"
+	StatusUnknown       PodStatus = "Unknown"
 )
 
 // dirtyStatuses is the set of pod statuses considered "dirty" and eligible for cleanup.
@@ -35,6 +35,7 @@ type PodMetrics struct {
 // PodInfo holds the display-relevant information for a single pod.
 type PodInfo struct {
 	Name         string
+	NameLower    string
 	Namespace    string
 	Status       PodStatus
 	Age          time.Duration

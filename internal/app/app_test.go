@@ -14,7 +14,7 @@ import (
 )
 
 func newTestModel(pods []k8s.PodInfo) Model {
-	cs := fake.NewSimpleClientset()
+	cs := fake.NewClientset()
 	client := k8s.NewClientFromClientset(cs, k8s.ClusterInfo{
 		ContextName: "test-context",
 		Namespace:   "default",
@@ -143,7 +143,7 @@ func TestHandlePodsLoaded_DiscardsStaleFetch(t *testing.T) {
 }
 
 func TestSwitchNamespace_ClearsCache(t *testing.T) {
-	cs := fake.NewSimpleClientset()
+	cs := fake.NewClientset()
 	client := k8s.NewClientFromClientset(cs, k8s.ClusterInfo{
 		ContextName: "test-context",
 		Namespace:   "default",
@@ -187,7 +187,7 @@ func TestPodsLoaded_IntegrationWithFakeClient(t *testing.T) {
 			Phase: corev1.PodRunning,
 		},
 	}
-	cs := fake.NewSimpleClientset(pod)
+	cs := fake.NewClientset(pod)
 	client := k8s.NewClientFromClientset(cs, k8s.ClusterInfo{
 		ContextName: "test-context",
 		Namespace:   "default",

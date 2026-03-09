@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"errors"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
@@ -19,7 +20,30 @@ type MetricsClient struct {
 func CheckMetricsAvailable(ctx context.Context, client *Client) bool {
 	// ServerGroupsAndResources may return a partial list alongside a non-nil error
 	// when some API groups are unreachable. We still check the partial results.
-	_, resources, _ := client.clientset.Discovery().ServerGroupsAndResources()
+	// The discovery call itself doesn't accept context, so run it in a goroutine
+	// and respect the caller timeout/cancellation.
+	type discoveryResult struct {
+		resources []*metav1.APIResourceList
+	}
+	resultCh := make(chan discoveryResult, 1)
+	go func() {
+		_, resources, _ := client.clientset.Discovery().ServerGroupsAndResources()
+		resultCh <- discoveryResult{resources: resources}
+	}()
+
+	var resources []*metav1.APIResourceList
+	select {
+	case <-ctx.Done():
+		// If discovery timed out, fail open so metrics fetch can still proceed.
+		// This avoids hiding metrics in slower control-plane environments.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return true
+		}
+		return false
+	case result := <-resultCh:
+		resources = result.resources
+	}
+
 	for _, r := range resources {
 		if r.GroupVersion == "metrics.k8s.io/v1beta1" {
 			return true
@@ -80,11 +104,15 @@ func MergePodMetrics(pods []PodInfo, metrics map[string]PodMetrics) []PodInfo {
 		merged[i] = p
 		key := p.Namespace + "/" + p.Name
 		if m, ok := metrics[key]; ok {
-			merged[i].Metrics = &PodMetrics{
-				CPUMillicores: m.CPUMillicores,
-				MemoryBytes:   m.MemoryBytes,
+			if p.Metrics != nil &&
+				p.Metrics.CPUMillicores == m.CPUMillicores &&
+				p.Metrics.MemoryBytes == m.MemoryBytes {
+				continue
 			}
+			merged[i].Metrics = &PodMetrics{CPUMillicores: m.CPUMillicores, MemoryBytes: m.MemoryBytes}
+			continue
 		}
+		merged[i].Metrics = nil
 	}
 	return merged
 }

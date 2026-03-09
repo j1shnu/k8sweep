@@ -12,14 +12,14 @@ import (
 type ActionType int
 
 const (
-	ActionDelete      ActionType = iota
+	ActionDelete ActionType = iota
 	ActionForceDelete
 )
 
 // Model represents the deletion confirmation overlay.
 type Model struct {
 	podNames   []string
-	warnings   []string   // e.g., "pod-x is standalone (no controller)"
+	warnings   []string // e.g., "pod-x is standalone (no controller)"
 	actionType ActionType
 	cursor     int // 0 = Yes, 1 = No
 	confirmed  bool
@@ -122,10 +122,10 @@ func (m Model) View() string {
 	maxShow := 10
 	for i, name := range m.podNames {
 		if i >= maxShow {
-			b.WriteString(fmt.Sprintf("  ... and %d more\n", len(m.podNames)-maxShow))
+			fmt.Fprintf(&b, "  ... and %d more\n", len(m.podNames)-maxShow)
 			break
 		}
-		b.WriteString(fmt.Sprintf("  • %s\n", name))
+		fmt.Fprintf(&b, "  • %s\n", name)
 	}
 
 	if len(m.warnings) > 0 {
@@ -133,23 +133,20 @@ func (m Model) View() string {
 		b.WriteString(styles.StatusMessage.Render("Warnings:"))
 		b.WriteString("\n")
 		for _, w := range m.warnings {
-			b.WriteString(fmt.Sprintf("  ⚠ %s\n", w))
+			fmt.Fprintf(&b, "  ⚠ %s\n", w)
 		}
 	}
 
 	b.WriteString("\n")
 
-	yes := "  Yes  "
-	no := "  No  "
+	yes, no := "  Yes  ", "  No  "
 	if m.cursor == 0 {
 		yes = styles.SelectedRow.Render(" [Yes] ")
-		no = "  No  "
 	} else {
-		yes = "  Yes  "
 		no = styles.SelectedRow.Render(" [No] ")
 	}
 
-	b.WriteString(fmt.Sprintf("    %s    %s", yes, no))
+	fmt.Fprintf(&b, "    %s    %s", yes, no)
 
 	return styles.OverlayBox.Render(b.String())
 }
