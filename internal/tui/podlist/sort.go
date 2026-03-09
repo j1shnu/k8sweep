@@ -11,7 +11,7 @@ import (
 type SortColumn int
 
 const (
-	SortByName     SortColumn = iota
+	SortByName SortColumn = iota
 	SortByStatus
 	SortByAge
 	SortByRestarts
@@ -44,7 +44,8 @@ var statusSeverity = map[k8s.PodStatus]int{
 	k8s.StatusFailed:        5,
 	k8s.StatusEvicted:       6,
 	k8s.StatusOOMKilled:     7,
-	k8s.StatusCrashLoopBack: 8,
+	k8s.StatusImagePullErr:  8,
+	k8s.StatusCrashLoopBack: 9,
 }
 
 // NextSortColumn cycles to the next sort column. CPU/Mem are skipped when

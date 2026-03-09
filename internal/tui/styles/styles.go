@@ -16,6 +16,7 @@ var (
 	ColorPointer   = lipgloss.Color("#FFFFFF") // White
 	ColorMuted     = lipgloss.Color("#666666") // Muted
 	ColorAccent    = lipgloss.Color("#7D56F4") // Purple accent for borders/highlights
+	ColorLabel     = lipgloss.Color("#c1b895")
 )
 
 // Component styles
@@ -29,8 +30,12 @@ var (
 	FooterHelp = lipgloss.NewStyle().
 			Foreground(ColorMuted)
 
+	LabelText = lipgloss.NewStyle().
+			Foreground(ColorLabel)
+
 	SelectedRow = lipgloss.NewStyle().
-			Background(lipgloss.Color("#333333")).
+			Background(lipgloss.Color("#5A513C")).
+			Foreground(lipgloss.Color("#FFFFFF")).
 			Bold(true)
 
 	Pointer = lipgloss.NewStyle().
@@ -77,6 +82,18 @@ var (
 	LoadingFact = lipgloss.NewStyle().
 			Italic(true).
 			Foreground(lipgloss.Color("#FFAA00"))
+
+	CritSummary = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorFailed)
+
+	WarnSummary = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorEvicted)
+
+	OKSummary = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorRunning)
 )
 
 // StyleForStatus returns the appropriate lipgloss style for a pod status.
@@ -92,6 +109,8 @@ func StyleForStatus(status string) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(ColorEvicted)
 	case "CrashLoopBackOff":
 		return lipgloss.NewStyle().Foreground(ColorCrashLoop)
+	case "ImagePullError":
+		return lipgloss.NewStyle().Foreground(ColorFailed)
 	case "OOMKilled":
 		return lipgloss.NewStyle().Foreground(ColorOOMKilled)
 	case "Pending":

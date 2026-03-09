@@ -160,6 +160,18 @@ func TestDerivePodStatus_CrashLoopBackOff(t *testing.T) {
 	assert.Equal(t, StatusCrashLoopBack, info.Status)
 }
 
+func TestDerivePodStatus_ImagePullBackOff(t *testing.T) {
+	pod := makePodWithContainerStatus("imgpull", "default", corev1.PodPending, "ImagePullBackOff", "")
+	info := mapPodToInfo(pod)
+	assert.Equal(t, StatusImagePullErr, info.Status)
+}
+
+func TestDerivePodStatus_ErrImagePull(t *testing.T) {
+	pod := makePodWithContainerStatus("imgpull-err", "default", corev1.PodPending, "ErrImagePull", "")
+	info := mapPodToInfo(pod)
+	assert.Equal(t, StatusImagePullErr, info.Status)
+}
+
 func TestDerivePodStatus_OOMKilled(t *testing.T) {
 	pod := makePodWithContainerStatus("oom", "default", corev1.PodRunning, "", "OOMKilled")
 	info := mapPodToInfo(pod)

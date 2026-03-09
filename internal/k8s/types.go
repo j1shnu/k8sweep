@@ -11,6 +11,7 @@ const (
 	StatusFailed        PodStatus = "Failed"
 	StatusEvicted       PodStatus = "Evicted"
 	StatusCrashLoopBack PodStatus = "CrashLoopBackOff"
+	StatusImagePullErr  PodStatus = "ImagePullError"
 	StatusOOMKilled     PodStatus = "OOMKilled"
 	StatusPending       PodStatus = "Pending"
 	StatusTerminating   PodStatus = "Terminating"
@@ -23,6 +24,7 @@ var dirtyStatuses = map[PodStatus]struct{}{
 	StatusFailed:        {},
 	StatusEvicted:       {},
 	StatusCrashLoopBack: {},
+	StatusImagePullErr:  {},
 	StatusOOMKilled:     {},
 }
 

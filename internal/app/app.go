@@ -290,7 +290,7 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	newModel.header = m.header.Update(msg)
 	newModel.podList = m.podList.SetSize(msg.Width, listHeight)
 	newModel.footer = m.footer.SetWidth(msg.Width)
-	newModel.help = m.help.SetWidth(msg.Width)
+	newModel.help = m.help.SetSize(msg.Width, msg.Height-common.HeaderHeight-common.FooterHeight-1)
 	newModel.podDetail = m.podDetail.SetSize(msg.Width, msg.Height-common.HeaderHeight-1)
 	newModel.width = msg.Width
 	newModel.height = msg.Height
@@ -314,7 +314,8 @@ func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
 	newModel.allPods = allPods
 	newModel.podList = m.podList.SetItemsSorted(displayPods)
 	newModel.totalPodCount = totalCount
-	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), totalCount))
+	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), totalCount)).
+		SetStatusSummary(buildStatusSummary(allPods))
 	newModel.err = nil
 	newModel.statusMsg = ""
 
@@ -347,7 +348,8 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 	newModel.pendingMetrics = nil
 	newModel.podList = m.podList.SetItemsSorted(displayPods)
 	newModel.totalPodCount = totalCount
-	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), totalCount))
+	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), totalCount)).
+		SetStatusSummary(buildStatusSummary(allPods))
 	newModel.err = nil
 	if msg.Err != nil {
 		newModel.statusMsg = "Warning: some namespaces failed to load"
@@ -374,6 +376,8 @@ func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
 		newModel.allPods = allPods
 		newModel.pendingMetrics = nil
 		newModel.podList = m.podList.SetItemsSorted(displayPods)
+		newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
+			SetStatusSummary(buildStatusSummary(allPods))
 		return newModel
 	}
 
@@ -447,6 +451,16 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleHelpKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		newModel := m
+		newModel.help = m.help.ScrollDown()
+		return newModel, nil
+	case "k", "up":
+		newModel := m
+		newModel.help = m.help.ScrollUp()
+		return newModel, nil
+	}
 	if key.Matches(msg, m.keys.Help) || msg.String() == "esc" {
 		newModel := m
 		newModel.state = stateBrowsing
@@ -460,7 +474,7 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Help):
 		newModel := m
 		newModel.state = stateHelp
-		newModel.help = m.help.SetWidth(m.width)
+		newModel.help = m.help.SetSize(m.width, m.height-common.HeaderHeight-common.FooterHeight-1)
 		return newModel, nil
 	case key.Matches(msg, m.keys.Up):
 		newModel := m
@@ -470,6 +484,16 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Down):
 		newModel := m
 		newModel.podList = m.podList.MoveDown()
+		newModel.pendingG = false
+		return newModel, nil
+	case key.Matches(msg, m.keys.PageUp):
+		newModel := m
+		newModel.podList = m.podList.PageUp()
+		newModel.pendingG = false
+		return newModel, nil
+	case key.Matches(msg, m.keys.PageDown):
+		newModel := m
+		newModel.podList = m.podList.PageDown()
 		newModel.pendingG = false
 		return newModel, nil
 	case key.Matches(msg, m.keys.GoBottom):
@@ -523,7 +547,8 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			newModel.allPods = allPods
 			newModel.totalPodCount = len(allPods)
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
-			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods)))
+			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
+				SetStatusSummary(buildStatusSummary(allPods))
 			newModel.statusMsg = "Refreshed"
 			return newModel, m.fetchMetricsCmd()
 		}
@@ -569,11 +594,17 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.allPods != nil {
 			displayPods := applyFilters(m.allPods, newModel.filter, m.activeSearchQuery())
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
-			newModel.header = m.header.SetFilter(newFilter, buildPodCountLabel(newFilter, len(displayPods), len(m.allPods)))
+			// Turning filter OFF should reset pagination/cursor to page 1.
+			if !newFilter {
+				newModel.podList = newModel.podList.GoTop()
+			}
+			newModel.header = m.header.SetFilter(newFilter, buildPodCountLabel(newFilter, len(displayPods), len(m.allPods))).
+				SetStatusSummary(buildStatusSummary(m.allPods))
 			return newModel, nil
 		}
 		newModel.podList = m.podList.SetLoading()
-		newModel.header = m.header.SetFilter(newFilter, "")
+		newModel.header = m.header.SetFilter(newFilter, "").
+			SetStatusSummary(header.StatusSummary{})
 		return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
 	}
 	return m, nil
@@ -654,7 +685,8 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.allPods != nil {
 			displayPods := applyFilters(m.allPods, m.filter, newModel.searchQuery)
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
-			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods)))
+			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
+				SetStatusSummary(buildStatusSummary(m.allPods))
 		}
 		if newModel.searchQuery != "" {
 			newModel.statusMsg = "Search: " + newModel.searchQuery
@@ -672,7 +704,8 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.allPods != nil {
 			displayPods := applyFilters(m.allPods, m.filter, "")
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
-			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods)))
+			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
+				SetStatusSummary(buildStatusSummary(m.allPods))
 		}
 		newModel.statusMsg = ""
 		return newModel, nil
@@ -706,7 +739,8 @@ func (m Model) handleSearchDebounced(msg SearchDebouncedMsg) Model {
 	displayPods := applyFilters(m.allPods, m.filter, msg.Query)
 	newModel := m
 	newModel.podList = m.podList.SetItemsSorted(displayPods)
-	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods)))
+	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
+		SetStatusSummary(buildStatusSummary(m.allPods))
 	return newModel
 }
 
@@ -749,7 +783,7 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		namespace:        ns,
 		watcher:          newWatcher,
 		watchID:          newWatchID,
-		header:           m.header.SetNamespace(ns).SetFilter(m.filter.ShowDirtyOnly, ""),
+		header:           m.header.SetNamespace(ns).SetFilter(m.filter.ShowDirtyOnly, "").SetStatusSummary(header.StatusSummary{}),
 		podList:          m.podList.SetShowNamespace(isAllNS).SetItems(nil).SetLoading(),
 		footer:           m.footer,
 		confirm:          m.confirm,
@@ -977,4 +1011,29 @@ func filterByName(pods []k8s.PodInfo, query string) []k8s.PodInfo {
 		}
 	}
 	return filtered
+}
+
+func buildStatusSummary(pods []k8s.PodInfo) header.StatusSummary {
+	s := header.StatusSummary{}
+	for _, p := range pods {
+		switch p.Status {
+		case k8s.StatusCrashLoopBack, k8s.StatusFailed:
+			s.CritCrash++
+		case k8s.StatusImagePullErr:
+			s.CritImgErr++
+		case k8s.StatusOOMKilled:
+			s.CritOOM++
+		case k8s.StatusEvicted:
+			s.CritEvicted++
+		case k8s.StatusPending:
+			s.WarnPending++
+		case k8s.StatusTerminating:
+			s.WarnTerminating++
+		case k8s.StatusRunning:
+			s.OKRunning++
+		case k8s.StatusCompleted:
+			s.OKCompleted++
+		}
+	}
+	return s
 }
