@@ -66,7 +66,9 @@ func TestSetDetail(t *testing.T) {
 	assert.Contains(t, view, "10.0.0.5")
 	assert.Contains(t, view, "Burstable")
 	assert.Contains(t, view, "ReplicaSet/test-rs-abc123")
+	assert.Contains(t, view, "main")
 	assert.Contains(t, view, "nginx:1.21")
+	assert.Contains(t, view, "image:")
 	assert.Contains(t, view, "80/TCP")
 	assert.Contains(t, view, "Ready")
 }
