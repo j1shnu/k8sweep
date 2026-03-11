@@ -45,6 +45,15 @@ type PodDetailLoadedMsg struct {
 	PodKey string // "namespace/name" to detect stale responses
 }
 
+// PodShellExitedMsg is sent when an interactive pod shell session exits.
+type PodShellExitedMsg struct {
+	PodKey    string
+	Container string
+	Backend   string
+	ShellPath string
+	Err       error
+}
+
 // TickMsg triggers periodic metrics refresh.
 type TickMsg struct{}
 

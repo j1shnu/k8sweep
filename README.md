@@ -15,6 +15,7 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 - Search/filter pods by name in real-time (`/` to search)
 - Smart pod-name truncation (middle ellipsis) to keep similar long pod names distinguishable
 - Pod detail panel with labels, annotations, containers, and conditions (`i` to inspect)
+- Open interactive pod/container shell from pod detail (`e`, with container picker for multi-container pods)
 - Filter toggle to show only dirty pods (turning filter off resets to page 1)
 - CPU/memory metrics display (when metrics-server is available)
 - Namespace switcher with fuzzy filtering
@@ -30,6 +31,17 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 Live terminal demo showing page navigation, smart name truncation, filter toggle, Crit/Warn/OK header summary, and deleting a completed pod.
 
 ## Installation
+
+### Quick install (latest release)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/j1shnu/k8sweep/main/scripts/install.sh | bash
+```
+
+Optional installer env vars:
+
+- `INSTALL_DIR` (default: `/usr/local/bin`)
+- `REPO` (default: `j1shnu/k8sweep`)
 
 ### From GitHub Releases
 
@@ -70,6 +82,9 @@ k8sweep
 k8sweep --kubeconfig /path/to/config
 k8sweep --context my-cluster
 k8sweep --namespace kube-system
+
+# Shorthand flags
+k8sweep -k /path/to/config -c my-cluster
 ```
 
 ## Keybindings
@@ -127,7 +142,23 @@ k8sweep --namespace kube-system
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Scroll up / down |
+| `e` | Open shell in pod container (works from pod detail only) |
 | `i` / `Esc` | Close detail view |
+
+### In container picker
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` / `↑` / `↓` | Navigate containers |
+| `Enter` | Open shell in selected container |
+| `Esc` | Cancel |
+
+### Shell behavior
+
+- Backend order: tries `kubectl exec` first, then falls back to client-go exec streaming.
+- Shell fallback order: `/bin/bash` -> `/bin/sh` -> `/busybox/sh`.
+- `kubectl` backend uses the same kube target as k8sweep (`--context` and explicit `--kubeconfig` when provided), so shell sessions stay on the same cluster/context as the UI.
+- Shell is blocked for terminal pod states (`Completed`, `Failed`, `Evicted`).
 
 ### In namespace switcher
 

@@ -14,6 +14,7 @@ import (
 	"github.com/jprasad/k8sweep/internal/k8s"
 	"github.com/jprasad/k8sweep/internal/tui/common"
 	"github.com/jprasad/k8sweep/internal/tui/confirm"
+	"github.com/jprasad/k8sweep/internal/tui/containerpicker"
 	"github.com/jprasad/k8sweep/internal/tui/footer"
 	"github.com/jprasad/k8sweep/internal/tui/header"
 	"github.com/jprasad/k8sweep/internal/tui/help"
@@ -32,6 +33,7 @@ const (
 	stateSwitchingNamespace
 	stateHelp
 	stateViewingDetail
+	statePickingContainer
 	stateSearching
 )
 
@@ -69,7 +71,10 @@ type Model struct {
 	nsSwitcher   namespace.Model
 	help         help.Model
 	podDetail    poddetail.Model
+	containerSel containerpicker.Model
 	detailPodKey string // tracks which pod's detail was requested
+	detailData   *k8s.PodDetail
+	detailStatus string
 
 	// Search
 	searchInput textinput.Model
@@ -127,6 +132,7 @@ func NewModel(client *k8s.Client) Model {
 		footer:           footer.New(keys.ShortHelp()),
 		nsSwitcher:       namespace.New(),
 		help:             help.New(keys.FullHelp()),
+		containerSel:     containerpicker.New(),
 		metricsAvailable: metricsAvail,
 	}
 }
@@ -176,6 +182,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PodDetailLoadedMsg:
 		return m.handlePodDetailLoaded(msg), nil
+
+	case PodShellExitedMsg:
+		return m.handlePodShellExited(msg), nil
 
 	case PodsDeletedMsg:
 		return m.handlePodsDeleted(msg)
@@ -235,8 +244,21 @@ func (m Model) View() string {
 			m.footer.View() + "\n"
 
 	case stateViewingDetail:
+		status := ""
+		if m.detailStatus != "" {
+			status = "\n" + styles.StatusMessage.Render(" "+m.detailStatus)
+		}
 		return m.header.View() + "\n" +
-			m.podDetail.View() + "\n"
+			m.podDetail.View() + status + "\n"
+
+	case statePickingContainer:
+		status := ""
+		if m.detailStatus != "" {
+			status = "\n" + styles.StatusMessage.Render(" "+m.detailStatus)
+		}
+		return m.header.View() + "\n" +
+			m.podDetail.View() + "\n" +
+			m.containerSel.View() + status + "\n"
 
 	case stateConfirming:
 		return m.header.View() + "\n" +
@@ -444,6 +466,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleHelpKey(msg)
 	case stateViewingDetail:
 		return m.handleDetailKey(msg)
+	case statePickingContainer:
+		return m.handleContainerPickerKey(msg)
 	case stateSearching:
 		return m.handleSearchKey(msg)
 	}
@@ -563,6 +587,8 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel := m
 		newModel.state = stateViewingDetail
 		newModel.detailPodKey = pod.Namespace + "/" + pod.Name
+		newModel.detailData = nil
+		newModel.detailStatus = ""
 		newModel.podDetail = m.podDetail.SetSize(m.width, m.height-common.HeaderHeight-1).SetLoading()
 		return newModel, newModel.fetchPodDetailCmd(pod.Namespace, pod.Name)
 	case key.Matches(msg, m.keys.Sort):
@@ -790,6 +816,9 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		nsSwitcher:       m.nsSwitcher.Deactivate(),
 		help:             m.help,
 		podDetail:        m.podDetail.Hide(),
+		containerSel:     containerpicker.New(),
+		detailData:       nil,
+		detailStatus:     "",
 		width:            m.width,
 		height:           m.height,
 		metricsAvailable: m.metricsAvailable,
@@ -805,8 +834,12 @@ func (m Model) handlePodDetailLoaded(msg PodDetailLoadedMsg) Model {
 	}
 	newModel := m
 	if msg.Err != nil {
+		newModel.detailData = nil
+		newModel.detailStatus = ""
 		newModel.podDetail = m.podDetail.SetError(msg.Err.Error())
 	} else {
+		newModel.detailData = msg.Detail
+		newModel.detailStatus = ""
 		newModel.podDetail = m.podDetail.SetDetail(msg.Detail)
 	}
 	return newModel
@@ -818,6 +851,41 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel := m
 		newModel.state = stateBrowsing
 		newModel.podDetail = m.podDetail.Hide()
+		newModel.detailData = nil
+		newModel.detailStatus = ""
+		return newModel, nil
+	case key.Matches(msg, m.keys.Shell):
+		if m.detailData == nil {
+			newModel := m
+			newModel.detailStatus = "Pod details are still loading"
+			return newModel, nil
+		}
+		if !isShellEligibleStatus(m.detailData.Status) {
+			newModel := m
+			newModel.detailStatus = "Shell unavailable for pod status: " + string(m.detailData.Status)
+			return newModel, nil
+		}
+		if len(m.detailData.Containers) == 0 {
+			newModel := m
+			newModel.detailStatus = "No containers available in this pod"
+			return newModel, nil
+		}
+
+		if len(m.detailData.Containers) == 1 {
+			container := m.detailData.Containers[0]
+			newModel := m
+			newModel.detailStatus = ""
+			return newModel, newModel.openShellCmd(
+				m.detailData.Namespace,
+				m.detailData.Name,
+				container.Name,
+			)
+		}
+
+		newModel := m
+		newModel.state = statePickingContainer
+		newModel.detailStatus = ""
+		newModel.containerSel = m.containerSel.SetContainers(m.detailData.Containers)
 		return newModel, nil
 	case msg.String() == "j" || msg.String() == "down":
 		newModel := m
@@ -829,6 +897,67 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return newModel, nil
 	}
 	return m, nil
+}
+
+func (m Model) handleContainerPickerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		newModel := m
+		newModel.state = stateViewingDetail
+		newModel.detailStatus = ""
+		return newModel, nil
+	case "j", "down":
+		newModel := m
+		newModel.containerSel = m.containerSel.MoveDown()
+		return newModel, nil
+	case "k", "up":
+		newModel := m
+		newModel.containerSel = m.containerSel.MoveUp()
+		return newModel, nil
+	case "enter":
+		selected := m.containerSel.Selected()
+		if selected == nil || m.detailData == nil {
+			newModel := m
+			newModel.detailStatus = "No container selected"
+			return newModel, nil
+		}
+		newModel := m
+		newModel.state = stateViewingDetail
+		newModel.detailStatus = ""
+		return newModel, newModel.openShellCmd(
+			m.detailData.Namespace,
+			m.detailData.Name,
+			selected.Name,
+		)
+	}
+	return m, nil
+}
+
+func (m Model) handlePodShellExited(msg PodShellExitedMsg) Model {
+	if msg.PodKey != m.detailPodKey {
+		return m
+	}
+
+	newModel := m
+	newModel.state = stateBrowsing
+	newModel.podDetail = m.podDetail.Hide()
+	newModel.detailData = nil
+	newModel.detailStatus = ""
+
+	if msg.Err != nil {
+		newModel.err = msg.Err
+		newModel.statusMsg = ""
+		return newModel
+	}
+
+	newModel.err = nil
+	newModel.statusMsg = fmt.Sprintf(
+		"Shell closed: %s (%s via %s)",
+		msg.Container,
+		msg.ShellPath,
+		msg.Backend,
+	)
+	return newModel
 }
 
 // --- Command factories ---
@@ -1036,4 +1165,13 @@ func buildStatusSummary(pods []k8s.PodInfo) header.StatusSummary {
 		}
 	}
 	return s
+}
+
+func isShellEligibleStatus(status k8s.PodStatus) bool {
+	switch status {
+	case k8s.StatusCompleted, k8s.StatusFailed, k8s.StatusEvicted:
+		return false
+	default:
+		return true
+	}
 }
