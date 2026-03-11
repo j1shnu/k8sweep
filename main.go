@@ -44,6 +44,8 @@ func main() {
 		return
 	}
 
+	k8s.SuppressBenignRuntimeErrors()
+
 	client, err := k8s.NewClient(k8s.ClientConfig{
 		KubeconfigPath:    *kubeconfig,
 		ContextOverride:   *context,

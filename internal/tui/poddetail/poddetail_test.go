@@ -124,6 +124,7 @@ func TestView_Footer(t *testing.T) {
 	m := New().SetSize(100, 40).SetDetail(sampleDetail())
 	view := m.View()
 	assert.Contains(t, view, "j/k scroll")
+	assert.Contains(t, view, "e shell")
 	assert.Contains(t, view, "i/esc close")
 }
 

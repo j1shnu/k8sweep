@@ -141,7 +141,14 @@ func (m Model) renderLines() []string {
 	lines = append(lines, "")
 	lines = append(lines, styles.Title.Render("In Pod Detail"))
 	lines = append(lines, "  "+styles.LabelText.Render("[j/k]")+"  "+styles.FooterHelp.Render("scroll up/down"))
+	lines = append(lines, "  "+styles.LabelText.Render("[e]")+"  "+styles.FooterHelp.Render("open container shell"))
 	lines = append(lines, "  "+styles.LabelText.Render("[i/esc]")+"  "+styles.FooterHelp.Render("close detail view"))
+
+	lines = append(lines, "")
+	lines = append(lines, styles.Title.Render("In Container Picker"))
+	lines = append(lines, "  "+styles.LabelText.Render("[j/k or ↑/↓]")+"  "+styles.FooterHelp.Render("move container selection"))
+	lines = append(lines, "  "+styles.LabelText.Render("[enter]")+"  "+styles.FooterHelp.Render("open shell in selected container"))
+	lines = append(lines, "  "+styles.LabelText.Render("[esc]")+"  "+styles.FooterHelp.Render("cancel"))
 
 	lines = append(lines, "")
 	lines = append(lines, styles.Title.Render("In Namespace Switcher"))

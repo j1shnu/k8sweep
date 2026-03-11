@@ -357,3 +357,107 @@ func TestFilterOff_ResetsToFirstPage(t *testing.T) {
 	require.NotNil(t, p)
 	assert.Equal(t, "pod-01", p.Name)
 }
+
+func TestDetailShell_SingleContainerStartsShellCmd(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = stateViewingDetail
+	m.detailPodKey = "default/running-1"
+	m.detailData = &k8s.PodDetail{
+		Name:      "running-1",
+		Namespace: "default",
+		Status:    k8s.StatusRunning,
+		Containers: []k8s.ContainerDetail{
+			{Name: "main", Image: "nginx"},
+		},
+	}
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updated := result.(Model)
+
+	require.NotNil(t, cmd)
+	assert.Equal(t, stateViewingDetail, updated.state)
+}
+
+func TestDetailShell_MultiContainerOpensPicker(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = stateViewingDetail
+	m.detailPodKey = "default/running-1"
+	m.detailData = &k8s.PodDetail{
+		Name:      "running-1",
+		Namespace: "default",
+		Status:    k8s.StatusRunning,
+		Containers: []k8s.ContainerDetail{
+			{Name: "main", Image: "nginx"},
+			{Name: "sidecar", Image: "busybox"},
+		},
+	}
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updated := result.(Model)
+
+	require.Nil(t, cmd)
+	assert.Equal(t, statePickingContainer, updated.state)
+	require.NotNil(t, updated.containerSel.Selected())
+	assert.Equal(t, "main", updated.containerSel.Selected().Name)
+}
+
+func TestContainerPicker_EnterStartsShellCmd(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = statePickingContainer
+	m.detailPodKey = "default/running-1"
+	m.detailData = &k8s.PodDetail{
+		Name:      "running-1",
+		Namespace: "default",
+		Status:    k8s.StatusRunning,
+		Containers: []k8s.ContainerDetail{
+			{Name: "main", Image: "nginx"},
+			{Name: "sidecar", Image: "busybox"},
+		},
+	}
+	m.containerSel = m.containerSel.SetContainers(m.detailData.Containers)
+	m.containerSel = m.containerSel.MoveDown()
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := result.(Model)
+
+	require.NotNil(t, cmd)
+	assert.Equal(t, stateViewingDetail, updated.state)
+}
+
+func TestDetailShell_RejectsCompletedPod(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = stateViewingDetail
+	m.detailData = &k8s.PodDetail{
+		Name:      "completed-1",
+		Namespace: "default",
+		Status:    k8s.StatusCompleted,
+		Containers: []k8s.ContainerDetail{
+			{Name: "main", Image: "nginx"},
+		},
+	}
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updated := result.(Model)
+
+	require.Nil(t, cmd)
+	assert.Equal(t, stateViewingDetail, updated.state)
+	assert.Contains(t, updated.detailStatus, "Shell unavailable")
+}
+
+func TestHandlePodShellExited_SetsStatusAndReturnsToBrowsing(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = stateViewingDetail
+	m.detailPodKey = "default/running-1"
+	m.detailData = &k8s.PodDetail{Name: "running-1", Namespace: "default", Status: k8s.StatusRunning}
+
+	updated := m.handlePodShellExited(PodShellExitedMsg{
+		PodKey:    "default/running-1",
+		Container: "main",
+		Backend:   "kubectl",
+		ShellPath: "/bin/sh",
+	})
+
+	assert.Equal(t, stateBrowsing, updated.state)
+	assert.Contains(t, updated.statusMsg, "Shell closed")
+	assert.Nil(t, updated.detailData)
+}

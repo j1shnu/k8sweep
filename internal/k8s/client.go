@@ -8,6 +8,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
@@ -23,6 +24,8 @@ type ClientConfig struct {
 // Client wraps a Kubernetes clientset and cluster metadata.
 type Client struct {
 	clientset        kubernetes.Interface
+	restConfig       *rest.Config
+	kubeconfigPath   string
 	clusterInfo      ClusterInfo
 	metricsAvailable bool
 	metricsClient    *MetricsClient
@@ -90,7 +93,9 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}
 
 	c := &Client{
-		clientset: clientset,
+		clientset:      clientset,
+		restConfig:     restConfig,
+		kubeconfigPath: cfg.KubeconfigPath,
 		clusterInfo: ClusterInfo{
 			ContextName: contextName,
 			Namespace:   namespace,
@@ -128,6 +133,17 @@ func (c *Client) GetClusterInfo() ClusterInfo {
 // Clientset returns the underlying Kubernetes clientset.
 func (c *Client) Clientset() kubernetes.Interface {
 	return c.clientset
+}
+
+// RESTConfig returns the underlying Kubernetes REST configuration.
+func (c *Client) RESTConfig() *rest.Config {
+	return c.restConfig
+}
+
+// KubeconfigPath returns the explicit kubeconfig path used to create the client.
+// Empty means default client-go loading rules were used.
+func (c *Client) KubeconfigPath() string {
+	return c.kubeconfigPath
 }
 
 // MetricsAvailable returns true if the Metrics API is available in the cluster.

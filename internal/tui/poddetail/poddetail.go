@@ -152,7 +152,7 @@ func (m Model) View() string {
 		content = strings.Join(visible, "\n")
 	}
 
-	footer := styles.FooterHelp.Render("[j/k scroll, i/esc close]")
+	footer := styles.FooterHelp.Render("[j/k scroll, e shell, i/esc close]")
 	content += "\n\n" + footer
 
 	boxStyle := lipgloss.NewStyle().
