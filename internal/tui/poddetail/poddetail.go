@@ -14,7 +14,7 @@ import (
 type State int
 
 const (
-	StateHidden  State = iota
+	StateHidden State = iota
 	StateLoading
 	StateReady
 	StateError
@@ -22,13 +22,13 @@ const (
 
 // Model is the pod detail overlay component.
 type Model struct {
-	detail   *k8s.PodDetail
-	errMsg   string
-	state    State
-	scroll   int
-	width    int
-	height   int
-	lines    []string // pre-rendered content lines
+	detail *k8s.PodDetail
+	errMsg string
+	state  State
+	scroll int
+	width  int
+	height int
+	lines  []string // pre-rendered content lines
 }
 
 // New creates an empty hidden detail model.
@@ -225,8 +225,8 @@ func (m Model) renderLines() []string {
 				}
 				portsStr = " (ports: " + strings.Join(parts, ", ") + ")"
 			}
-			lines = append(lines, fmt.Sprintf("  [%d] %s%s",
-				i+1, styles.LoadingPrefix.Render(c.Image), portsStr))
+			lines = append(lines, fmt.Sprintf("  [%d] %s | image: %s%s",
+				i+1, styles.LoadingPrefix.Render(c.Name), styles.LoadingPrefix.Render(c.Image), portsStr))
 
 			readyStr := "no"
 			if c.Ready {
