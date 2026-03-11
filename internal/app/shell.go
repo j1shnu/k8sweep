@@ -110,6 +110,11 @@ func (c *podShellExecCommand) runWithKubectl() error {
 			c.shellUsed = shellPath
 			return nil
 		}
+		if isBenignShellExitError(err) {
+			c.backendUsed = "kubectl"
+			c.shellUsed = shellPath
+			return nil
+		}
 		lastErr = err
 		if isMissingShellError(err, stderrBuf.String()) {
 			continue
@@ -184,6 +189,11 @@ func (c *podShellExecCommand) runWithClientGo() error {
 			c.shellUsed = shellPath
 			return nil
 		}
+		if isBenignShellExitError(err) {
+			c.backendUsed = "client-go"
+			c.shellUsed = shellPath
+			return nil
+		}
 		lastErr = err
 		if isMissingShellError(err, err.Error()) {
 			continue
@@ -205,6 +215,15 @@ func isMissingShellError(err error, stderr string) bool {
 	return strings.Contains(text, "executable file not found") ||
 		strings.Contains(text, "no such file or directory") ||
 		strings.Contains(text, "not found")
+}
+
+func isBenignShellExitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "exit code 130") ||
+		strings.Contains(text, "signal: interrupt")
 }
 
 type singleTerminalSizeQueue struct {
