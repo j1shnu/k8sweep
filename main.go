@@ -53,7 +53,7 @@ func main() {
 		AllNamespaces:     *allNamespaces,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error connecting to cluster: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
