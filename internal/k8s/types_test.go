@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -26,6 +27,54 @@ func TestPodInfo_IsDirty(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pod := PodInfo{Name: "test", Status: tt.status}
+			assert.Equal(t, tt.want, pod.IsDirty())
+		})
+	}
+}
+
+func TestPodInfo_IsDirty_StuckTerminating(t *testing.T) {
+	recentDeletion := time.Now().Add(-2 * time.Minute)
+	stuckDeletion := time.Now().Add(-10 * time.Minute)
+
+	tests := []struct {
+		name         string
+		status       PodStatus
+		deletionTime *time.Time
+		want         bool
+	}{
+		{
+			name:         "Terminating pod without deletion time is not dirty",
+			status:       StatusTerminating,
+			deletionTime: nil,
+			want:         false,
+		},
+		{
+			name:         "Recently terminating pod is not dirty",
+			status:       StatusTerminating,
+			deletionTime: &recentDeletion,
+			want:         false,
+		},
+		{
+			name:         "Stuck terminating pod is dirty",
+			status:       StatusTerminating,
+			deletionTime: &stuckDeletion,
+			want:         true,
+		},
+		{
+			name:         "Running pod with deletion time is not dirty",
+			status:       StatusRunning,
+			deletionTime: &stuckDeletion,
+			want:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pod := PodInfo{
+				Name:         "test",
+				Status:       tt.status,
+				DeletionTime: tt.deletionTime,
+			}
 			assert.Equal(t, tt.want, pod.IsDirty())
 		})
 	}

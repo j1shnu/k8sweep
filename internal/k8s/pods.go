@@ -94,6 +94,11 @@ func mapPodToInfo(pod corev1.Pod) PodInfo {
 		ref := pod.OwnerReferences[0]
 		owner = ref.Kind + "/" + ref.Name
 	}
+	var deletionTime *time.Time
+	if pod.DeletionTimestamp != nil {
+		t := pod.DeletionTimestamp.Time
+		deletionTime = &t
+	}
 	return PodInfo{
 		Name:         pod.Name,
 		NameLower:    strings.ToLower(pod.Name),
@@ -103,6 +108,7 @@ func mapPodToInfo(pod corev1.Pod) PodInfo {
 		RestartCount: totalRestartCount(pod),
 		NodeName:     pod.Spec.NodeName,
 		OwnerRef:     owner,
+		DeletionTime: deletionTime,
 	}
 }
 

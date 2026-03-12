@@ -34,6 +34,10 @@ type PodMetrics struct {
 	MemoryBytes   int64
 }
 
+// StuckTerminatingThreshold is the duration after which a Terminating pod
+// is considered "stuck" and eligible for cleanup via the dirty filter.
+const StuckTerminatingThreshold = 5 * time.Minute
+
 // PodInfo holds the display-relevant information for a single pod.
 type PodInfo struct {
 	Name         string
@@ -45,12 +49,19 @@ type PodInfo struct {
 	NodeName     string
 	OwnerRef     string      // e.g. "ReplicaSet/my-app-abc123", empty for standalone pods
 	Metrics      *PodMetrics // nil when metrics are unavailable
+	DeletionTime *time.Time  // non-nil when pod is terminating (from DeletionTimestamp)
 }
 
-// IsDirty returns true if the pod's status is in the dirty set.
+// IsDirty returns true if the pod's status is in the dirty set,
+// or if the pod has been stuck in Terminating state beyond the threshold.
 func (p PodInfo) IsDirty() bool {
-	_, ok := dirtyStatuses[p.Status]
-	return ok
+	if _, ok := dirtyStatuses[p.Status]; ok {
+		return true
+	}
+	if p.Status == StatusTerminating && p.DeletionTime != nil {
+		return time.Since(*p.DeletionTime) >= StuckTerminatingThreshold
+	}
+	return false
 }
 
 // GetName returns the pod name (implements ResourceItem).

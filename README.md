@@ -198,6 +198,7 @@ k8sweep considers these pod statuses as dirty — safe to clean up:
 | **CrashLoopBackOff** | Container waiting with reason `CrashLoopBackOff` |
 | **ImagePullError** | Container waiting with reason `ImagePullBackOff` or `ErrImagePull` |
 | **OOMKilled** | Container terminated with reason `OOMKilled` (only if not currently running) |
+| **Terminating** (stuck) | Pod has been terminating for longer than 5 minutes past its `DeletionTimestamp` |
 
 ## Development
 
