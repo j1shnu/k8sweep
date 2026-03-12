@@ -94,6 +94,23 @@ var (
 	OKSummary = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(ColorRunning)
+
+	// Confirm button styles — destructive (Yes) vs safe (No)
+	ButtonDanger = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#CC3333"))
+
+	ButtonDangerDim = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#CC3333"))
+
+	ButtonSafe = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#338833"))
+
+	ButtonSafeDim = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#338833"))
 )
 
 // StyleForStatus returns the appropriate lipgloss style for a pod status.

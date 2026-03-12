@@ -90,7 +90,7 @@ func (m Model) deletePodsCmd(pods []k8s.PodInfo) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), deleteTimeout)
 		defer cancel()
 		results := k8s.DeletePods(ctx, client, pods)
-		return PodsDeletedMsg{Results: results}
+		return PodsDeletedMsg{Results: results, ForceDelete: false}
 	}
 }
 
@@ -100,7 +100,7 @@ func (m Model) forceDeletePodsCmd(pods []k8s.PodInfo) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), deleteTimeout)
 		defer cancel()
 		results := k8s.ForceDeletePods(ctx, client, pods)
-		return PodsDeletedMsg{Results: results}
+		return PodsDeletedMsg{Results: results, ForceDelete: true}
 	}
 }
 
