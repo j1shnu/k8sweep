@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jprasad/k8sweep/internal/k8s"
@@ -20,15 +21,34 @@ const (
 	StateError
 )
 
+// Subview represents which tab is active within the detail overlay.
+type Subview int
+
+const (
+	SubviewDetail Subview = iota
+	SubviewEvents
+	SubviewLogs
+)
+
 // Model is the pod detail overlay component.
 type Model struct {
-	detail *k8s.PodDetail
-	errMsg string
-	state  State
-	scroll int
-	width  int
-	height int
-	lines  []string // pre-rendered content lines
+	detail  *k8s.PodDetail
+	errMsg  string
+	state   State
+	subview Subview
+	scroll  int
+	width   int
+	height  int
+	lines   []string // pre-rendered content lines
+
+	// Events subview
+	events    []k8s.PodEvent
+	eventsErr string
+
+	// Logs subview
+	logLines     []string
+	logContainer string
+	logsErr      string
 }
 
 // New creates an empty hidden detail model.
@@ -84,6 +104,92 @@ func (m Model) Hide() Model {
 	}
 }
 
+// Subview returns the current subview.
+func (m Model) Subview() Subview {
+	return m.subview
+}
+
+// ShowDetail switches back to the detail subview.
+func (m Model) ShowDetail() Model {
+	newModel := m
+	newModel.subview = SubviewDetail
+	newModel.scroll = 0
+	newModel.lines = newModel.renderLines()
+	return newModel
+}
+
+// SetEventsLoading returns a model in the events subview with loading state.
+func (m Model) SetEventsLoading() Model {
+	newModel := m
+	newModel.subview = SubviewEvents
+	newModel.events = nil
+	newModel.eventsErr = ""
+	newModel.scroll = 0
+	newModel.state = StateLoading
+	newModel.lines = nil
+	return newModel
+}
+
+// SetEvents returns a model displaying pod events.
+func (m Model) SetEvents(events []k8s.PodEvent) Model {
+	newModel := m
+	newModel.subview = SubviewEvents
+	newModel.events = events
+	newModel.eventsErr = ""
+	newModel.scroll = 0
+	newModel.state = StateReady
+	newModel.lines = newModel.renderLines()
+	return newModel
+}
+
+// SetEventsError returns a model displaying an events error.
+func (m Model) SetEventsError(msg string) Model {
+	newModel := m
+	newModel.subview = SubviewEvents
+	newModel.eventsErr = msg
+	newModel.scroll = 0
+	newModel.state = StateError
+	newModel.lines = nil
+	return newModel
+}
+
+// SetLogsLoading returns a model in the logs subview with loading state.
+func (m Model) SetLogsLoading() Model {
+	newModel := m
+	newModel.subview = SubviewLogs
+	newModel.logLines = nil
+	newModel.logContainer = ""
+	newModel.logsErr = ""
+	newModel.scroll = 0
+	newModel.state = StateLoading
+	newModel.lines = nil
+	return newModel
+}
+
+// SetLogs returns a model displaying pod logs.
+func (m Model) SetLogs(lines []string, container string) Model {
+	newModel := m
+	newModel.subview = SubviewLogs
+	newModel.logLines = lines
+	newModel.logContainer = container
+	newModel.logsErr = ""
+	newModel.scroll = 0
+	newModel.state = StateReady
+	newModel.lines = newModel.renderLines()
+	return newModel
+}
+
+// SetLogsError returns a model displaying a logs error.
+func (m Model) SetLogsError(msg string) Model {
+	newModel := m
+	newModel.subview = SubviewLogs
+	newModel.logsErr = msg
+	newModel.scroll = 0
+	newModel.state = StateError
+	newModel.lines = nil
+	return newModel
+}
+
 // IsVisible returns true if the overlay is showing.
 func (m Model) IsVisible() bool {
 	return m.state != StateHidden
@@ -110,6 +216,27 @@ func (m Model) ScrollDown() Model {
 	return newModel
 }
 
+// ScrollToTop scrolls to the top of the content.
+func (m Model) ScrollToTop() Model {
+	if m.scroll == 0 {
+		return m
+	}
+	newModel := m
+	newModel.scroll = 0
+	return newModel
+}
+
+// ScrollToBottom scrolls to the bottom of the content.
+func (m Model) ScrollToBottom() Model {
+	max := m.maxScroll()
+	if m.scroll >= max {
+		return m
+	}
+	newModel := m
+	newModel.scroll = max
+	return newModel
+}
+
 func (m Model) maxScroll() int {
 	contentHeight := m.height - 6 // borders + padding + footer hint
 	if contentHeight <= 0 {
@@ -130,9 +257,23 @@ func (m Model) View() string {
 	case StateHidden:
 		return ""
 	case StateLoading:
-		content = styles.LoadingSpinner.Render("⠹") + styles.LoadingPrefix.Render(" Loading pod details...")
+		label := " Loading pod details..."
+		switch m.subview {
+		case SubviewEvents:
+			label = " Loading events..."
+		case SubviewLogs:
+			label = " Loading logs..."
+		}
+		content = styles.LoadingSpinner.Render("⠹") + styles.LoadingPrefix.Render(label)
 	case StateError:
-		content = styles.ErrorMessage.Render("Error: " + m.errMsg)
+		errMsg := m.errMsg
+		switch m.subview {
+		case SubviewEvents:
+			errMsg = m.eventsErr
+		case SubviewLogs:
+			errMsg = m.logsErr
+		}
+		content = styles.ErrorMessage.Render("Error: " + errMsg)
 	case StateReady:
 		contentHeight := m.height - 6
 		if contentHeight <= 0 {
@@ -152,7 +293,7 @@ func (m Model) View() string {
 		content = strings.Join(visible, "\n")
 	}
 
-	footer := styles.FooterHelp.Render("[j/k scroll, e shell, i/esc close]")
+	footer := m.footerHint()
 	content += "\n\n" + footer
 
 	boxStyle := lipgloss.NewStyle().
@@ -167,8 +308,41 @@ func (m Model) View() string {
 	return boxStyle.Render(content)
 }
 
-// renderLines pre-renders the detail content into lines for scrolling.
+func (m Model) footerHint() string {
+	k := func(s string) string { return styles.LabelText.Render("[" + s + "]") }
+	d := func(s string) string { return styles.FooterHelp.Render(s) }
+	sep := "  "
+
+	switch m.subview {
+	case SubviewEvents, SubviewLogs:
+		return k("j/k") + d(" scroll") + sep +
+			k("gg") + d(" top") + sep +
+			k("G") + d(" bottom") + sep +
+			k("esc") + d(" back to detail")
+	default:
+		return k("j/k") + d(" scroll") + sep +
+			k("gg") + d(" top") + sep +
+			k("G") + d(" bottom") + sep +
+			k("v") + d(" events") + sep +
+			k("o") + d(" logs") + sep +
+			k("e") + d(" shell") + sep +
+			k("i/esc") + d(" close")
+	}
+}
+
+// renderLines pre-renders content into lines for scrolling based on the active subview.
 func (m Model) renderLines() []string {
+	switch m.subview {
+	case SubviewEvents:
+		return m.renderEventLines()
+	case SubviewLogs:
+		return m.renderLogLines()
+	default:
+		return m.renderDetailLines()
+	}
+}
+
+func (m Model) renderDetailLines() []string {
 	d := m.detail
 	if d == nil {
 		return nil
@@ -281,4 +455,101 @@ func sortedKeys(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func (m Model) renderEventLines() []string {
+	podName := ""
+	if m.detail != nil {
+		podName = m.detail.Name
+	}
+
+	var lines []string
+	lines = append(lines, styles.Title.Render("Events: "+podName))
+	lines = append(lines, strings.Repeat("─", 50))
+
+	if len(m.events) == 0 {
+		lines = append(lines, "")
+		lines = append(lines, styles.FooterHelp.Render("  No events found for this pod."))
+		return lines
+	}
+
+	for _, e := range m.events {
+		typeStyle := styles.FooterHelp
+		if e.Type == "Warning" {
+			typeStyle = lipgloss.NewStyle().Foreground(styles.ColorEvicted)
+		}
+
+		age := formatEventAge(e.LastTimestamp)
+		countStr := ""
+		if e.Count > 1 {
+			countStr = fmt.Sprintf(" (x%d)", e.Count)
+		}
+
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("  %s  %s  %s%s",
+			typeStyle.Render(e.Type),
+			styles.LoadingPrefix.Render(e.Reason),
+			styles.FooterHelp.Render(age),
+			countStr,
+		))
+		// Wrap long messages
+		msg := e.Message
+		if len(msg) > 80 {
+			msg = msg[:77] + "..."
+		}
+		lines = append(lines, "    "+msg)
+		if e.Source != "" {
+			lines = append(lines, "    "+styles.FooterHelp.Render("source: "+e.Source))
+		}
+	}
+
+	return lines
+}
+
+func (m Model) renderLogLines() []string {
+	podName := ""
+	if m.detail != nil {
+		podName = m.detail.Name
+	}
+
+	title := "Logs: " + podName
+	if m.logContainer != "" {
+		title += "/" + m.logContainer
+	}
+	title += " (last 100 lines)"
+
+	var lines []string
+	lines = append(lines, styles.Title.Render(title))
+	lines = append(lines, strings.Repeat("─", 50))
+
+	if len(m.logLines) == 0 {
+		lines = append(lines, "")
+		lines = append(lines, styles.FooterHelp.Render("  No logs available."))
+		return lines
+	}
+
+	for _, l := range m.logLines {
+		lines = append(lines, "  "+l)
+	}
+
+	return lines
+}
+
+func formatEventAge(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	d := time.Since(t)
+	hours := d.Hours()
+	if hours >= 24 {
+		return fmt.Sprintf("%dd ago", int(hours/24))
+	}
+	if hours >= 1 {
+		return fmt.Sprintf("%dh ago", int(hours))
+	}
+	mins := int(d.Minutes())
+	if mins >= 1 {
+		return fmt.Sprintf("%dm ago", mins)
+	}
+	return fmt.Sprintf("%ds ago", int(d.Seconds()))
 }

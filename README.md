@@ -15,6 +15,8 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 - Search/filter pods by name in real-time (`/` to search)
 - Smart pod-name truncation (middle ellipsis) to keep similar long pod names distinguishable
 - Pod detail panel with labels, annotations, containers, and conditions (`i` to inspect)
+- View recent Kubernetes events for a pod from detail view (`v`)
+- View recent container logs (last 100 lines) from detail view (`o`, with container picker for multi-container pods)
 - Open interactive pod/container shell from pod detail (`e`, with container picker for multi-container pods)
 - Filter toggle to show only dirty pods (turning filter off resets to page 1)
 - CPU/memory metrics display (when metrics-server is available)
@@ -114,6 +116,7 @@ k8sweep -k /path/to/config -c my-cluster
 | `n` | Switch namespace |
 | `?` | Toggle help overlay |
 | `q` / `Ctrl+C` | Quit |
+| `qq` | Quit from any screen (except search/namespace input) |
 
 ### Pagination
 
@@ -142,15 +145,19 @@ k8sweep -k /path/to/config -c my-cluster
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Scroll up / down |
-| `e` | Open shell in pod container (works from pod detail only) |
-| `i` / `Esc` | Close detail view |
+| `gg` | Scroll to top |
+| `G` | Scroll to bottom |
+| `v` | View pod events |
+| `o` | View pod logs (container picker for multi-container pods) |
+| `e` | Open shell in pod container |
+| `i` / `Esc` | Close detail view (Esc returns to detail from events/logs) |
 
 ### In container picker
 
 | Key | Action |
 |-----|--------|
 | `j` / `k` / `↑` / `↓` | Navigate containers |
-| `Enter` | Open shell in selected container |
+| `Enter` | Confirm selection (opens shell or fetches logs) |
 | `Esc` | Cancel |
 
 ### Shell behavior
@@ -199,7 +206,7 @@ make clean      # Clean build artifacts
 ```
 internal/
   app/          # Bubble Tea state machine (Browsing → Confirming → Searching → Help → Detail)
-  k8s/          # Kubernetes client, Watch API, pod operations, metrics, detail fetch
+  k8s/          # Kubernetes client, Watch API, pod operations, metrics, detail, events, logs
   tui/          # UI components (podlist, header, footer, confirm, namespace, poddetail, help, styles)
   resource/     # Resource interface for extensibility (Jobs, PVCs planned)
 ```

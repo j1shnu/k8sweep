@@ -42,6 +42,14 @@ const (
 	searchDebounce    = 120 * time.Millisecond
 )
 
+// pickPurpose tracks why the container picker is being shown.
+type pickPurpose int
+
+const (
+	pickForShell pickPurpose = iota
+	pickForLogs
+)
+
 // fetchSeq is a global atomic counter used to tag pod fetch requests.
 // Stale responses (from a previous fetch) are discarded by comparing sequence numbers.
 var fetchSeq atomic.Uint64
@@ -70,10 +78,11 @@ type Model struct {
 	help         help.Model
 	podDetail    poddetail.Model
 	containerSel containerpicker.Model
-	detailPodKey     string // tracks which pod's detail was requested
-	detailData       *k8s.PodDetail
-	detailStatus     string
-	shellWarningAcked bool // true after user acknowledges shell warning for risky pod states
+	detailPodKey      string // tracks which pod's detail was requested
+	detailData        *k8s.PodDetail
+	detailStatus      string
+	shellWarningAcked bool       // true after user acknowledges shell warning for risky pod states
+	containerPickFor  pickPurpose // what the container picker is being used for
 
 	// Search
 	searchInput textinput.Model
@@ -92,6 +101,10 @@ type Model struct {
 	// Vim gg support: tracks pending 'g' keypress for go-to-top
 	pendingG     bool
 	pendingGTime time.Time
+
+	// qq support: tracks pending 'q' keypress for quit-from-anywhere
+	pendingQ     bool
+	pendingQTime time.Time
 
 	metricsAvailable bool                      // true if Metrics API is available
 	pendingMetrics   map[string]k8s.PodMetrics // buffered metrics awaiting pod data merge
@@ -178,6 +191,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PodDetailLoadedMsg:
 		return m.handlePodDetailLoaded(msg), nil
+
+	case PodEventsLoadedMsg:
+		return m.handlePodEventsLoaded(msg), nil
+
+	case PodLogsLoadedMsg:
+		return m.handlePodLogsLoaded(msg), nil
 
 	case PodShellExitedMsg:
 		return m.handlePodShellExited(msg), nil
@@ -443,12 +462,42 @@ func (m Model) handleNamespacesLoaded(msg NamespacesLoadedMsg) Model {
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
-	// Global quit
-	if key.Matches(msg, m.keys.Quit) && (m.state == stateBrowsing || m.state == stateHelp) {
+	// ctrl+c always quits
+	if msg.String() == "ctrl+c" {
 		if m.watcher != nil {
 			m.watcher.Stop()
 		}
 		return m, tea.Quit
+	}
+
+	// Single q quits from browsing/help (existing behavior)
+	if msg.String() == "q" && (m.state == stateBrowsing || m.state == stateHelp) {
+		if m.watcher != nil {
+			m.watcher.Stop()
+		}
+		return m, tea.Quit
+	}
+
+	// qq quits from screens that don't accept text input.
+	// Excluded: stateSearching and stateSwitchingNamespace (q is a valid character).
+	hasTextInput := m.state == stateSearching || m.state == stateSwitchingNamespace
+	if msg.String() == "q" && !hasTextInput {
+		if m.pendingQ && time.Since(m.pendingQTime) < 500*time.Millisecond {
+			if m.watcher != nil {
+				m.watcher.Stop()
+			}
+			return m, tea.Quit
+		}
+		newModel := m
+		newModel.pendingQ = true
+		newModel.pendingQTime = time.Now()
+		return newModel, nil
+	}
+	// Any non-q key resets pending q
+	if m.pendingQ {
+		newModel := m
+		newModel.pendingQ = false
+		m = newModel
 	}
 
 	switch m.state {
@@ -728,6 +777,7 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		detailData:        nil,
 		detailStatus:      "",
 		shellWarningAcked: false,
+		containerPickFor:  pickForShell,
 		width:             m.width,
 		height:           m.height,
 		metricsAvailable: m.metricsAvailable,

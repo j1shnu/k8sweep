@@ -19,6 +19,8 @@ type KeyMap struct {
 	Sort        key.Binding
 	Info        key.Binding
 	Shell       key.Binding
+	Events      key.Binding
+	Logs        key.Binding
 	Help        key.Binding
 	Quit        key.Binding
 	Confirm     key.Binding
@@ -89,6 +91,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("e"),
 			key.WithHelp("e", "open pod shell (accessible in pod details view)"),
 		),
+		Events: key.NewBinding(
+			key.WithKeys("v"),
+			key.WithHelp("v", "view pod events (in pod detail)"),
+		),
+		Logs: key.NewBinding(
+			key.WithKeys("o"),
+			key.WithHelp("o", "view pod logs (in pod detail)"),
+		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?", "toggle help"),
@@ -123,6 +133,6 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GoBottom, k.Search, k.Select, k.SelectAll},
 		{k.Delete, k.ForceDelete, k.Refresh, k.Filter},
-		{k.Sort, k.Info, k.Shell, k.Namespace, k.Help, k.Quit},
+		{k.Sort, k.Info, k.Shell, k.Events, k.Logs, k.Namespace, k.Help, k.Quit},
 	}
 }

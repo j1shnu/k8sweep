@@ -65,6 +65,21 @@ type TickMsg struct{}
 // LoadingTickMsg triggers a spinner/fact rotation while loading.
 type LoadingTickMsg struct{}
 
+// PodEventsLoadedMsg is sent when pod events have been fetched.
+type PodEventsLoadedMsg struct {
+	Events []k8s.PodEvent
+	Err    error
+	PodKey string // "namespace/name" to detect stale responses
+}
+
+// PodLogsLoadedMsg is sent when pod logs have been fetched.
+type PodLogsLoadedMsg struct {
+	Lines     []string
+	Container string
+	Err       error
+	PodKey    string // "namespace/name" to detect stale responses
+}
+
 // SearchDebouncedMsg applies search filtering after a short debounce delay.
 // Seq is used to discard stale debounce ticks.
 type SearchDebouncedMsg struct {
