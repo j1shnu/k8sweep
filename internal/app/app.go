@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -11,8 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jprasad/k8sweep/internal/k8s"
 	"github.com/jprasad/k8sweep/internal/tui/common"
-	"github.com/jprasad/k8sweep/internal/tui/confirm"
 	"github.com/jprasad/k8sweep/internal/tui/containerpicker"
+	"github.com/jprasad/k8sweep/internal/tui/deletepreview"
+	"github.com/jprasad/k8sweep/internal/tui/deletesummary"
 	"github.com/jprasad/k8sweep/internal/tui/footer"
 	"github.com/jprasad/k8sweep/internal/tui/header"
 	"github.com/jprasad/k8sweep/internal/tui/help"
@@ -27,7 +27,8 @@ type appState int
 
 const (
 	stateBrowsing appState = iota
-	stateConfirming
+	stateDeletePreview
+	stateDeleteSummary
 	stateSwitchingNamespace
 	stateHelp
 	stateViewingDetail
@@ -70,14 +71,15 @@ type Model struct {
 	watcher *k8s.PodWatcher
 	watchID uint64 // incremented on each new watcher to discard stale events
 
-	header       header.Model
-	podList      podlist.Model
-	footer       footer.Model
-	confirm      confirm.Model
-	nsSwitcher   namespace.Model
-	help         help.Model
-	podDetail    poddetail.Model
-	containerSel containerpicker.Model
+	header        header.Model
+	podList       podlist.Model
+	footer        footer.Model
+	deletePreview deletepreview.Model
+	deleteSummary deletesummary.Model
+	nsSwitcher    namespace.Model
+	help          help.Model
+	podDetail     poddetail.Model
+	containerSel  containerpicker.Model
 	detailPodKey      string // tracks which pod's detail was requested
 	detailData        *k8s.PodDetail
 	detailStatus      string
@@ -275,10 +277,13 @@ func (m Model) View() string {
 			m.podDetail.View() + "\n" +
 			m.containerSel.View() + status + "\n"
 
-	case stateConfirming:
+	case stateDeletePreview:
 		return m.header.View() + "\n" +
-			m.podList.View() + "\n\n" +
-			m.confirm.View() + "\n"
+			m.deletePreview.View() + "\n"
+
+	case stateDeleteSummary:
+		return m.header.View() + "\n" +
+			m.deleteSummary.View() + "\n"
 
 	case stateSwitchingNamespace:
 		return m.header.View() + "\n" +
@@ -423,20 +428,18 @@ func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
 }
 
 func (m Model) handlePodsDeleted(msg PodsDeletedMsg) (Model, tea.Cmd) {
-	successCount := 0
-	for _, r := range msg.Results {
-		if r.Success {
-			successCount++
-		}
+	action := common.DeleteNormal
+	if msg.ForceDelete {
+		action = common.DeleteForce
 	}
+
 	newModel := m
-	newModel.state = stateBrowsing
+	newModel.state = stateDeleteSummary
+	newModel.deleteSummary = deletesummary.New(msg.Results, action).
+		SetSize(m.width, m.height-common.HeaderHeight-1)
 	newModel.err = nil
-	if successCount > 0 {
-		newModel.statusMsg = " Deleted " + strconv.Itoa(successCount) + " pod(s)"
-	} else {
-		newModel.statusMsg = ""
-	}
+	newModel.statusMsg = ""
+
 	// Watcher will detect the deletions automatically.
 	// Fallback fetch for environments without a watcher.
 	if m.watcher == nil {
@@ -503,8 +506,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch m.state {
 	case stateBrowsing:
 		return m.handleBrowsingKey(msg)
-	case stateConfirming:
-		return m.handleConfirmingKey(msg)
+	case stateDeletePreview:
+		return m.handleDeletePreviewKey(msg)
+	case stateDeleteSummary:
+		return m.handleDeleteSummaryKey(msg)
 	case stateSwitchingNamespace:
 		return m.updateNSSwitcher(msg)
 	case stateHelp:
@@ -594,9 +599,9 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return newModel, nil
 	case key.Matches(msg, m.keys.Delete):
-		return m.enterConfirmDelete(confirm.ActionDelete)
+		return m.enterDeletePreview(common.DeleteNormal)
 	case key.Matches(msg, m.keys.ForceDelete):
-		return m.enterConfirmDelete(confirm.ActionForceDelete)
+		return m.enterDeletePreview(common.DeleteForce)
 	case key.Matches(msg, m.keys.Namespace):
 		newModel := m
 		newModel.nsLoading = true
@@ -681,8 +686,8 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// enterConfirmDelete enters the confirm dialog for delete or force delete.
-func (m Model) enterConfirmDelete(action confirm.ActionType) (Model, tea.Cmd) {
+// enterDeletePreview enters the delete preview screen.
+func (m Model) enterDeletePreview(action common.DeleteAction) (Model, tea.Cmd) {
 	selected := m.podList.GetSelected()
 	if len(selected) == 0 {
 		newModel := m
@@ -690,38 +695,48 @@ func (m Model) enterConfirmDelete(action confirm.ActionType) (Model, tea.Cmd) {
 		return newModel, nil
 	}
 
-	names := make([]string, len(selected))
 	var warnings []string
-	for i, p := range selected {
-		names[i] = p.Namespace + "/" + p.Name
+	for _, p := range selected {
 		if p.OwnerRef == "" {
 			warnings = append(warnings, p.Name+" is standalone (no controller — delete is permanent)")
 		}
 	}
 
 	newModel := m
-	newModel.confirm = confirm.NewWithAction(names, action, warnings)
-	newModel.state = stateConfirming
+	newModel.deletePreview = deletepreview.New(selected, action, warnings).
+		SetSize(m.width, m.height-common.HeaderHeight-1)
+	newModel.state = stateDeletePreview
 	return newModel, nil
 }
 
-func (m Model) handleConfirmingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	newConfirm, cmd := m.confirm.Update(msg)
+func (m Model) handleDeletePreviewKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	newPreview, cmd := m.deletePreview.Update(msg)
 	newModel := m
-	newModel.confirm = newConfirm
-	if newConfirm.IsConfirmed() {
-		pods := m.podList.GetSelected()
+	newModel.deletePreview = newPreview
+	if newPreview.IsConfirmed() {
+		pods := newPreview.Pods()
 		newModel.state = stateBrowsing
-		if newConfirm.Action() == confirm.ActionForceDelete {
+		if newPreview.Action() == common.DeleteForce {
 			newModel.statusMsg = "Force deleting..."
 			return newModel, newModel.forceDeletePodsCmd(pods)
 		}
 		newModel.statusMsg = "Deleting..."
 		return newModel, newModel.deletePodsCmd(pods)
 	}
-	if newConfirm.IsCancelled() {
+	if newPreview.IsCancelled() {
 		newModel.state = stateBrowsing
 		newModel.statusMsg = "Cancelled"
+		return newModel, nil
+	}
+	return newModel, cmd
+}
+
+func (m Model) handleDeleteSummaryKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	newSummary, cmd := m.deleteSummary.Update(msg)
+	newModel := m
+	newModel.deleteSummary = newSummary
+	if newSummary.IsDismissed() {
+		newModel.state = stateBrowsing
 		return newModel, nil
 	}
 	return newModel, cmd
@@ -769,7 +784,6 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		header:           m.header.SetNamespace(ns).SetFilter(m.filter.ShowDirtyOnly, "").SetStatusSummary(header.StatusSummary{}),
 		podList:          m.podList.SetShowNamespace(isAllNS).SetItems(nil).SetLoading(),
 		footer:           m.footer,
-		confirm:          m.confirm,
 		nsSwitcher:       m.nsSwitcher.Deactivate(),
 		help:             m.help,
 		podDetail:        m.podDetail.Hide(),

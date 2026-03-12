@@ -13,3 +13,11 @@ const (
 	HeaderHeight = 3
 	FooterHeight = 2
 )
+
+// DeleteAction distinguishes normal delete from force delete.
+type DeleteAction int
+
+const (
+	DeleteNormal DeleteAction = iota
+	DeleteForce
+)

@@ -579,7 +579,7 @@ func (m Model) View() string {
 		statusStyle := styles.StyleForStatus(string(pod.Status))
 		status := statusStyle.Render(fmt.Sprintf("%-16s", pod.Status))
 
-		age := formatAge(pod.Age)
+		age := FormatAge(pod.Age)
 		name := smartTruncateMiddle(pod.Name, nameColWidth)
 
 		metricsStr := ""
@@ -732,7 +732,8 @@ func formatMemory(bytes int64) string {
 	}
 }
 
-func formatAge(d time.Duration) string {
+// FormatAge formats a duration as a human-readable age string.
+func FormatAge(d time.Duration) string {
 	hours := d.Hours()
 	if hours >= 24 {
 		return fmt.Sprintf("%dd", int(hours/24))

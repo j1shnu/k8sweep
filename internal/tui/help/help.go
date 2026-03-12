@@ -132,11 +132,18 @@ func (m Model) renderLines() []string {
 	lines = append(lines, "  "+styles.LabelText.Render("[esc]")+"  "+styles.FooterHelp.Render("cancel and clear search"))
 
 	lines = append(lines, "")
-	lines = append(lines, styles.Title.Render("In Confirm Dialog"))
-	lines = append(lines, "  "+styles.LabelText.Render("[y/n]")+"  "+styles.FooterHelp.Render("confirm or cancel"))
-	lines = append(lines, "  "+styles.LabelText.Render("[esc]")+"  "+styles.FooterHelp.Render("cancel"))
+	lines = append(lines, styles.Title.Render("In Delete Preview"))
+	lines = append(lines, "  "+styles.LabelText.Render("[j/k or ↑/↓]")+"  "+styles.FooterHelp.Render("scroll pod list"))
+	lines = append(lines, "  "+styles.LabelText.Render("[y]")+"  "+styles.FooterHelp.Render("confirm delete"))
+	lines = append(lines, "  "+styles.LabelText.Render("[n/esc]")+"  "+styles.FooterHelp.Render("cancel"))
+	lines = append(lines, "  "+styles.LabelText.Render("[←/→]")+"  "+styles.FooterHelp.Render("toggle Yes/No"))
 	lines = append(lines, "  "+styles.FooterHelp.Render("force delete (x) bypasses graceful shutdown"))
 	lines = append(lines, "  "+styles.FooterHelp.Render("standalone pods (no controller) show a warning"))
+
+	lines = append(lines, "")
+	lines = append(lines, styles.Title.Render("In Delete Summary"))
+	lines = append(lines, "  "+styles.LabelText.Render("[j/k or ↑/↓]")+"  "+styles.FooterHelp.Render("scroll results"))
+	lines = append(lines, "  "+styles.LabelText.Render("[enter/esc]")+"  "+styles.FooterHelp.Render("return to pod list"))
 
 	lines = append(lines, "")
 	lines = append(lines, styles.Title.Render("In Pod Detail"))

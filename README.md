@@ -9,8 +9,9 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 
 - Interactive TUI with vim-style navigation (`j`/`k`, `gg`, `G`, page switch with `h`/`l` or `←`/`→`)
 - Real-time pod updates via Kubernetes Watch API (no polling)
-- Multi-select pods for batch deletion with confirmation
-- Force delete stuck pods (`x`) with graceful shutdown bypass
+- Multi-select pods for batch deletion with scrollable delete preview (namespace, status, age)
+- Post-delete summary showing successes, failures, and error details
+- Force delete stuck pods (`x`) with prominent warning and graceful shutdown bypass
 - Sort columns by name, status, age, restarts, CPU, or memory (`s` to cycle asc/desc)
 - Search/filter pods by name in real-time (`/` to search)
 - Smart pod-name truncation (middle ellipsis) to keep similar long pod names distinguishable
@@ -132,13 +133,21 @@ k8sweep -k /path/to/config -c my-cluster
 | `Enter` | Confirm search filter |
 | `Esc` | Cancel and clear search |
 
-### In confirmation dialog
+### In delete preview
 
 | Key | Action |
 |-----|--------|
-| `y` / `n` | Confirm or cancel |
-| `Esc` | Cancel |
+| `j` / `k` / `↑` / `↓` | Scroll pod list |
+| `y` | Confirm delete |
+| `n` / `Esc` | Cancel |
 | `←` / `→` | Toggle Yes/No |
+
+### In delete summary
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` / `↑` / `↓` | Scroll results |
+| `Enter` / `Esc` | Return to pod list |
 
 ### In pod detail
 
@@ -205,9 +214,9 @@ make clean      # Clean build artifacts
 
 ```
 internal/
-  app/          # Bubble Tea state machine (Browsing → Confirming → Searching → Help → Detail)
+  app/          # Bubble Tea state machine (Browsing → DeletePreview → DeleteSummary → Searching → Help → Detail)
   k8s/          # Kubernetes client, Watch API, pod operations, metrics, detail, events, logs
-  tui/          # UI components (podlist, header, footer, confirm, namespace, poddetail, help, styles)
+  tui/          # UI components (podlist, header, footer, deletepreview, deletesummary, namespace, poddetail, help, styles)
   resource/     # Resource interface for extensibility (Jobs, PVCs planned)
 ```
 

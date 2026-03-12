@@ -23,7 +23,8 @@ type WatchStoppedMsg struct {
 // PodsDeletedMsg is sent after a batch delete operation completes.
 // Individual errors are captured per-DeleteResult.
 type PodsDeletedMsg struct {
-	Results []k8s.DeleteResult
+	Results    []k8s.DeleteResult
+	ForceDelete bool
 }
 
 // NamespacesLoadedMsg is sent when the namespace list has been fetched.
