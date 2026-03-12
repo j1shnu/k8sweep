@@ -150,6 +150,28 @@ func loadingTickCmd() tea.Cmd {
 	})
 }
 
+func (m Model) fetchPodEventsCmd(namespace, name string) tea.Cmd {
+	client := m.client
+	podKey := namespace + "/" + name
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+		events, err := k8s.GetPodEvents(ctx, client, namespace, name)
+		return PodEventsLoadedMsg{Events: events, Err: err, PodKey: podKey}
+	}
+}
+
+func (m Model) fetchPodLogsCmd(namespace, name, container string) tea.Cmd {
+	client := m.client
+	podKey := namespace + "/" + name
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+		lines, err := k8s.GetPodLogs(ctx, client, namespace, name, container, k8s.DefaultTailLines)
+		return PodLogsLoadedMsg{Lines: lines, Container: container, Err: err, PodKey: podKey}
+	}
+}
+
 func searchDebounceCmd(seq uint64, query string) tea.Cmd {
 	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
 		return SearchDebouncedMsg{Seq: seq, Query: query}

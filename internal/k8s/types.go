@@ -85,3 +85,14 @@ type DeleteResult struct {
 	Success   bool
 	Error     error
 }
+
+// PodEvent holds a single Kubernetes event for a pod.
+type PodEvent struct {
+	Type           string // "Normal" or "Warning"
+	Reason         string
+	Message        string
+	Source         string // component that generated the event
+	Count          int32
+	FirstTimestamp time.Time
+	LastTimestamp   time.Time
+}

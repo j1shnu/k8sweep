@@ -141,8 +141,12 @@ func (m Model) renderLines() []string {
 	lines = append(lines, "")
 	lines = append(lines, styles.Title.Render("In Pod Detail"))
 	lines = append(lines, "  "+styles.LabelText.Render("[j/k]")+"  "+styles.FooterHelp.Render("scroll up/down"))
+	lines = append(lines, "  "+styles.LabelText.Render("[gg]")+"  "+styles.FooterHelp.Render("scroll to top"))
+	lines = append(lines, "  "+styles.LabelText.Render("[G]")+"  "+styles.FooterHelp.Render("scroll to bottom"))
+	lines = append(lines, "  "+styles.LabelText.Render("[v]")+"  "+styles.FooterHelp.Render("view pod events"))
+	lines = append(lines, "  "+styles.LabelText.Render("[o]")+"  "+styles.FooterHelp.Render("view pod logs"))
 	lines = append(lines, "  "+styles.LabelText.Render("[e]")+"  "+styles.FooterHelp.Render("open container shell"))
-	lines = append(lines, "  "+styles.LabelText.Render("[i/esc]")+"  "+styles.FooterHelp.Render("close detail view"))
+	lines = append(lines, "  "+styles.LabelText.Render("[i/esc]")+"  "+styles.FooterHelp.Render("close detail view (esc returns to detail from events/logs)"))
 
 	lines = append(lines, "")
 	lines = append(lines, styles.Title.Render("In Container Picker"))
