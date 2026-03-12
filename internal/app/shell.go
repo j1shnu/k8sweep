@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,6 +26,9 @@ type podShellExecCommand struct {
 	podName       string
 	containerName string
 
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
@@ -36,6 +40,7 @@ type podShellExecCommand struct {
 func (m Model) openShellCmd(namespace, podName, containerName string) tea.Cmd {
 	podKey := namespace + "/" + podName
 	cluster := m.client.GetClusterInfo()
+	ctx, cancel := context.WithCancel(context.Background())
 	command := &podShellExecCommand{
 		client:        m.client,
 		contextName:   cluster.ContextName,
@@ -43,6 +48,8 @@ func (m Model) openShellCmd(namespace, podName, containerName string) tea.Cmd {
 		namespace:     namespace,
 		podName:       podName,
 		containerName: containerName,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 	return tea.Exec(command, func(err error) tea.Msg {
 		return PodShellExitedMsg{
@@ -60,6 +67,9 @@ func (c *podShellExecCommand) SetStdout(w io.Writer) { c.stdout = w }
 func (c *podShellExecCommand) SetStderr(w io.Writer) { c.stderr = w }
 
 func (c *podShellExecCommand) Run() error {
+	if c.cancel != nil {
+		defer c.cancel()
+	}
 	if c.stdin == nil {
 		c.stdin = os.Stdin
 	}
@@ -171,9 +181,9 @@ func (c *podShellExecCommand) runWithClientGo() error {
 		}
 	}
 
-	sizeQueue := newTerminalSizeQueue(c.stdin)
 	for _, shellPath := range shellCandidates {
-		err := k8s.ExecInPod(context.Background(), c.client, k8s.ExecOptions{
+		sizeQueue := newTerminalSizeQueue(c.stdin)
+		err := k8s.ExecInPod(c.ctx, c.client, k8s.ExecOptions{
 			Namespace:     c.namespace,
 			PodName:       c.podName,
 			ContainerName: c.containerName,
@@ -213,14 +223,22 @@ func isMissingShellError(err error, stderr string) bool {
 	}
 	text := strings.ToLower(stderr + " " + err.Error())
 	return strings.Contains(text, "executable file not found") ||
-		strings.Contains(text, "no such file or directory") ||
-		strings.Contains(text, "not found")
+		strings.Contains(text, "no such file or directory")
 }
 
 func isBenignShellExitError(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Typed check for kubectl backend (os/exec.ExitError)
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		// 130 = terminated by SIGINT (Ctrl+C)
+		if exitErr.ExitCode() == 130 {
+			return true
+		}
+	}
+	// String fallback for client-go backend (remotecommand wraps errors as strings)
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "exit code 130") ||
 		strings.Contains(text, "signal: interrupt")

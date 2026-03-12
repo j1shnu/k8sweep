@@ -367,7 +367,7 @@ func TestDetailShell_SingleContainerStartsShellCmd(t *testing.T) {
 		Namespace: "default",
 		Status:    k8s.StatusRunning,
 		Containers: []k8s.ContainerDetail{
-			{Name: "main", Image: "nginx"},
+			{Name: "main", Image: "nginx", State: "Running"},
 		},
 	}
 
@@ -387,8 +387,8 @@ func TestDetailShell_MultiContainerOpensPicker(t *testing.T) {
 		Namespace: "default",
 		Status:    k8s.StatusRunning,
 		Containers: []k8s.ContainerDetail{
-			{Name: "main", Image: "nginx"},
-			{Name: "sidecar", Image: "busybox"},
+			{Name: "main", Image: "nginx", State: "Running"},
+			{Name: "sidecar", Image: "busybox", State: "Running"},
 		},
 	}
 
@@ -410,8 +410,8 @@ func TestContainerPicker_EnterStartsShellCmd(t *testing.T) {
 		Namespace: "default",
 		Status:    k8s.StatusRunning,
 		Containers: []k8s.ContainerDetail{
-			{Name: "main", Image: "nginx"},
-			{Name: "sidecar", Image: "busybox"},
+			{Name: "main", Image: "nginx", State: "Running"},
+			{Name: "sidecar", Image: "busybox", State: "Running"},
 		},
 	}
 	m.containerSel = m.containerSel.SetContainers(m.detailData.Containers)
