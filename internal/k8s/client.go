@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -103,17 +102,6 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		},
 	}
 
-	// Probe metrics API availability (3s timeout, non-blocking on failure)
-	probeCtx, probeCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer probeCancel()
-	if CheckMetricsAvailable(probeCtx, c) {
-		mc, mcErr := metricsclient.NewForConfig(restConfig)
-		if mcErr == nil {
-			c.metricsAvailable = true
-			c.metricsClient = NewMetricsClient(mc)
-		}
-	}
-
 	return c, nil
 }
 
@@ -149,6 +137,17 @@ func (c *Client) KubeconfigPath() string {
 // MetricsAvailable returns true if the Metrics API is available in the cluster.
 func (c *Client) MetricsAvailable() bool {
 	return c.metricsAvailable
+}
+
+// EnableMetrics activates metrics support after an async probe confirms availability.
+func (c *Client) EnableMetrics() error {
+	mc, err := metricsclient.NewForConfig(c.restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create metrics client: %w", err)
+	}
+	c.metricsAvailable = true
+	c.metricsClient = NewMetricsClient(mc)
+	return nil
 }
 
 // GetMetricsClient returns the metrics client, or nil if metrics are unavailable.

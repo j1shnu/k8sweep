@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jprasad/k8sweep/internal/k8s"
 	"github.com/jprasad/k8sweep/internal/tui/header"
 )
@@ -78,6 +79,19 @@ func buildStatusSummary(pods []k8s.PodInfo) header.StatusSummary {
 		}
 	}
 	return s
+}
+
+func (m Model) handleMetricsProbed(msg MetricsProbedMsg) (Model, tea.Cmd) {
+	if !msg.Available {
+		return m, nil
+	}
+	if err := m.client.EnableMetrics(); err != nil {
+		return m, nil
+	}
+	newModel := m
+	newModel.metricsAvailable = true
+	newModel.podList = m.podList.SetMetricsAvailable(true)
+	return newModel, newModel.fetchMetricsCmd()
 }
 
 func isShellEligibleStatus(status k8s.PodStatus) bool {

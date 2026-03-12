@@ -125,6 +125,18 @@ func (m Model) fetchPodDetailCmd(namespace, name string) tea.Cmd {
 	}
 }
 
+const metricsProbeTimeout = 3 * time.Second
+
+func (m Model) probeMetricsCmd() tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), metricsProbeTimeout)
+		defer cancel()
+		available := k8s.CheckMetricsAvailable(ctx, client)
+		return MetricsProbedMsg{Available: available}
+	}
+}
+
 func (m Model) tickCmd() tea.Cmd {
 	return tea.Tick(metricsInterval, func(time.Time) tea.Msg {
 		return TickMsg{}

@@ -54,6 +54,11 @@ type PodShellExitedMsg struct {
 	Err       error
 }
 
+// MetricsProbedMsg is sent after the async metrics API probe completes.
+type MetricsProbedMsg struct {
+	Available bool
+}
+
 // TickMsg triggers periodic metrics refresh.
 type TickMsg struct{}
 

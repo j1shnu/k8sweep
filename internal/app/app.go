@@ -106,40 +106,34 @@ func NewModel(client *k8s.Client) Model {
 	// Pre-assign the initial fetchID so Init can create a matching fetch command.
 	initialID := fetchSeq.Add(1)
 
-	metricsAvail := client.MetricsAvailable()
-
 	pl := podlist.New()
 	if info.Namespace == k8s.AllNamespaces {
 		pl = pl.SetShowNamespace(true)
-	}
-	if metricsAvail {
-		pl = pl.SetMetricsAvailable(true)
 	}
 
 	watcher := k8s.NewPodWatcher(client.Clientset(), info.Namespace)
 
 	return Model{
-		client:           client,
-		keys:             keys,
-		state:            stateBrowsing,
-		namespace:        info.Namespace,
-		fetchID:          initialID,
-		watcher:          watcher,
-		watchID:          1,
-		header:           header.New(info.ContextName, info.Namespace),
-		podList:          pl,
-		footer:           footer.New(keys.ShortHelp()),
-		nsSwitcher:       namespace.New(),
-		help:             help.New(keys.FullHelp()),
-		containerSel:     containerpicker.New(),
-		metricsAvailable: metricsAvail,
+		client:       client,
+		keys:         keys,
+		state:        stateBrowsing,
+		namespace:    info.Namespace,
+		fetchID:      initialID,
+		watcher:      watcher,
+		watchID:      1,
+		header:       header.New(info.ContextName, info.Namespace),
+		podList:      pl,
+		footer:       footer.New(keys.ShortHelp()),
+		nsSwitcher:   namespace.New(),
+		help:         help.New(keys.FullHelp()),
+		containerSel: containerpicker.New(),
 	}
 }
 
 // Init starts the watcher, metrics polling, and loading animation.
 func (m Model) Init() tea.Cmd {
 	if m.watcher != nil {
-		return tea.Batch(m.startAndWatchCmd(), m.fetchMetricsCmd(), m.tickCmd(), loadingTickCmd())
+		return tea.Batch(m.startAndWatchCmd(), m.probeMetricsCmd(), m.tickCmd(), loadingTickCmd())
 	}
 	// Fallback for environments without a watcher (e.g., tests)
 	id := m.fetchID
@@ -157,7 +151,7 @@ func (m Model) Init() tea.Cmd {
 		pods, err := k8s.ListPods(ctx, client, ns)
 		return PodsLoadedMsg{Pods: pods, Err: err, FetchID: id}
 	}
-	return tea.Batch(fetchCmd, m.fetchMetricsCmd(), m.tickCmd(), loadingTickCmd())
+	return tea.Batch(fetchCmd, m.probeMetricsCmd(), m.tickCmd(), loadingTickCmd())
 }
 
 // Update handles all messages.
@@ -175,6 +169,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PodsLoadedMsg:
 		return m.handlePodsLoaded(msg), nil
+
+	case MetricsProbedMsg:
+		return m.handleMetricsProbed(msg)
 
 	case MetricsLoadedMsg:
 		return m.handleMetricsLoaded(msg), nil
