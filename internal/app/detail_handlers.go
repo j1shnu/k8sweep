@@ -75,7 +75,7 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if isRisky && !m.shellWarningAcked && hasRunningContainer(m.detailData.Containers) {
 			newModel := m
 			newModel.shellWarningAcked = true
-			newModel.detailStatus = "Warning: pod is in " + string(m.detailData.Status) + " — shell may not work properly. Press [e] again to proceed."
+			newModel.detailStatus = "Warning: pod is in " + string(m.detailData.Status) + " — shell may not work properly. Press [" + m.keys.Shell.Keys()[0] + "] again to proceed."
 			return newModel, nil
 		}
 

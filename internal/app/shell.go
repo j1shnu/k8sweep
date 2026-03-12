@@ -40,6 +40,7 @@ type podShellExecCommand struct {
 func (m Model) openShellCmd(namespace, podName, containerName string) tea.Cmd {
 	podKey := namespace + "/" + podName
 	cluster := m.client.GetClusterInfo()
+	// cancel is deferred inside Run(); tea.Exec guarantees Run() is called exactly once.
 	ctx, cancel := context.WithCancel(context.Background())
 	command := &podShellExecCommand{
 		client:        m.client,
@@ -222,6 +223,9 @@ func isMissingShellError(err error, stderr string) bool {
 		return false
 	}
 	text := strings.ToLower(stderr + " " + err.Error())
+	// "not found" alone is too broad — e.g. "pod not found" or "container not found"
+	// would incorrectly classify a lookup failure as a missing-shell error.
+	// "OCI runtime exec failed: ... not found" also contains "executable file not found".
 	return strings.Contains(text, "executable file not found") ||
 		strings.Contains(text, "no such file or directory")
 }

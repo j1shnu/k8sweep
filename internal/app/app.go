@@ -727,14 +727,13 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		nsSwitcher:       m.nsSwitcher.Deactivate(),
 		help:             m.help,
 		podDetail:        m.podDetail.Hide(),
-		containerSel:     containerpicker.New(),
-		detailData:       nil,
-		detailStatus:     "",
-		width:            m.width,
+		containerSel:      containerpicker.New(),
+		detailData:        nil,
+		detailStatus:      "",
+		shellWarningAcked: false,
+		width:             m.width,
 		height:           m.height,
 		metricsAvailable: m.metricsAvailable,
 	}
 	return newModel, tea.Batch(newModel.startAndWatchCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
 }
-
-
