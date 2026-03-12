@@ -188,11 +188,11 @@ func (m Model) View() string {
 
 	for i := start; i < end; i++ {
 		ns := m.filtered[i]
-		pointer := "  "
 		if i == m.cursor {
-			pointer = styles.Pointer.Render("> ")
+			b.WriteString(styles.Pointer.Render("> ") + styles.SelectedRow.Render(ns) + "\n")
+		} else {
+			b.WriteString("  " + ns + "\n")
 		}
-		b.WriteString(pointer + ns + "\n")
 	}
 
 	if len(m.filtered) == 0 {
