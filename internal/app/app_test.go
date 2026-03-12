@@ -367,7 +367,7 @@ func TestDetailShell_SingleContainerStartsShellCmd(t *testing.T) {
 		Namespace: "default",
 		Status:    k8s.StatusRunning,
 		Containers: []k8s.ContainerDetail{
-			{Name: "main", Image: "nginx"},
+			{Name: "main", Image: "nginx", State: "Running"},
 		},
 	}
 
@@ -387,8 +387,8 @@ func TestDetailShell_MultiContainerOpensPicker(t *testing.T) {
 		Namespace: "default",
 		Status:    k8s.StatusRunning,
 		Containers: []k8s.ContainerDetail{
-			{Name: "main", Image: "nginx"},
-			{Name: "sidecar", Image: "busybox"},
+			{Name: "main", Image: "nginx", State: "Running"},
+			{Name: "sidecar", Image: "busybox", State: "Running"},
 		},
 	}
 
@@ -410,8 +410,8 @@ func TestContainerPicker_EnterStartsShellCmd(t *testing.T) {
 		Namespace: "default",
 		Status:    k8s.StatusRunning,
 		Containers: []k8s.ContainerDetail{
-			{Name: "main", Image: "nginx"},
-			{Name: "sidecar", Image: "busybox"},
+			{Name: "main", Image: "nginx", State: "Running"},
+			{Name: "sidecar", Image: "busybox", State: "Running"},
 		},
 	}
 	m.containerSel = m.containerSel.SetContainers(m.detailData.Containers)
@@ -442,6 +442,157 @@ func TestDetailShell_RejectsCompletedPod(t *testing.T) {
 	require.Nil(t, cmd)
 	assert.Equal(t, stateViewingDetail, updated.state)
 	assert.Contains(t, updated.detailStatus, "Shell unavailable")
+}
+
+func TestDetailShell_CrashLoopWarningThenProceeds(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = stateViewingDetail
+	m.detailPodKey = "default/crash-1"
+	m.detailData = &k8s.PodDetail{
+		Name:      "crash-1",
+		Namespace: "default",
+		Status:    k8s.StatusCrashLoopBack,
+		Containers: []k8s.ContainerDetail{
+			{Name: "main", Image: "nginx", State: "Running"},
+		},
+	}
+
+	// First press — should show warning, no cmd
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updated := result.(Model)
+
+	require.Nil(t, cmd)
+	assert.True(t, updated.shellWarningAcked)
+	assert.Contains(t, updated.detailStatus, "Warning")
+	assert.Contains(t, updated.detailStatus, "CrashLoopBackOff")
+
+	// Second press — should launch shell
+	result2, cmd2 := updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updated2 := result2.(Model)
+
+	require.NotNil(t, cmd2)
+	assert.False(t, updated2.shellWarningAcked)
+}
+
+func TestDetailShell_CrashLoopAllContainersDown_NoWarning(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = stateViewingDetail
+	m.detailPodKey = "default/crash-1"
+	m.detailData = &k8s.PodDetail{
+		Name:      "crash-1",
+		Namespace: "default",
+		Status:    k8s.StatusCrashLoopBack,
+		Containers: []k8s.ContainerDetail{
+			{Name: "main", Image: "nginx", State: "Waiting: CrashLoopBackOff"},
+		},
+	}
+
+	// Should skip warning and show unavailable directly
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updated := result.(Model)
+
+	require.Nil(t, cmd)
+	assert.False(t, updated.shellWarningAcked)
+	assert.Contains(t, updated.detailStatus, "Shell unavailable")
+	assert.Contains(t, updated.detailStatus, "not running")
+}
+
+func TestDetailShell_SingleContainerNotRunning_Rejected(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = stateViewingDetail
+	m.detailPodKey = "default/running-1"
+	m.detailData = &k8s.PodDetail{
+		Name:      "running-1",
+		Namespace: "default",
+		Status:    k8s.StatusRunning,
+		Containers: []k8s.ContainerDetail{
+			{Name: "main", Image: "nginx", State: "Waiting: ContainerCreating"},
+		},
+	}
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updated := result.(Model)
+
+	require.Nil(t, cmd)
+	assert.Contains(t, updated.detailStatus, "Shell unavailable")
+	assert.Contains(t, updated.detailStatus, "not running")
+}
+
+func TestContainerPicker_NonRunningContainerRejected(t *testing.T) {
+	m := newTestModel(samplePods())
+	m.state = statePickingContainer
+	m.detailPodKey = "default/running-1"
+	m.detailData = &k8s.PodDetail{
+		Name:      "running-1",
+		Namespace: "default",
+		Status:    k8s.StatusRunning,
+		Containers: []k8s.ContainerDetail{
+			{Name: "main", Image: "nginx", State: "Running"},
+			{Name: "sidecar", Image: "busybox", State: "Waiting: CrashLoopBackOff"},
+		},
+	}
+	m.containerSel = m.containerSel.SetContainers(m.detailData.Containers)
+	// Move to sidecar (non-running)
+	m.containerSel = m.containerSel.MoveDown()
+
+	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := result.(Model)
+
+	require.Nil(t, cmd)
+	assert.Contains(t, updated.detailStatus, "Shell unavailable")
+	assert.Contains(t, updated.detailStatus, "sidecar")
+}
+
+func TestContainerRunning(t *testing.T) {
+	tests := []struct {
+		state string
+		want  bool
+	}{
+		{"Running", true},
+		{"Running (started 2h ago)", true},
+		{"Waiting: CrashLoopBackOff", false},
+		{"Terminated: OOMKilled", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			c := k8s.ContainerDetail{Name: "test", State: tt.state}
+			assert.Equal(t, tt.want, containerRunning(c))
+		})
+	}
+}
+
+func TestHasRunningContainer(t *testing.T) {
+	assert.True(t, hasRunningContainer([]k8s.ContainerDetail{
+		{Name: "a", State: "Running"},
+		{Name: "b", State: "Waiting: CrashLoopBackOff"},
+	}))
+	assert.False(t, hasRunningContainer([]k8s.ContainerDetail{
+		{Name: "a", State: "Waiting: CrashLoopBackOff"},
+		{Name: "b", State: "Terminated: OOMKilled"},
+	}))
+	assert.False(t, hasRunningContainer(nil))
+}
+
+func TestIsMissingShellError(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		stderr string
+		want   bool
+	}{
+		{"executable file not found", fmt.Errorf("executable file not found in $PATH"), "", true},
+		{"no such file or directory", fmt.Errorf("exec failed"), "/bin/bash: no such file or directory", true},
+		{"pod not found should NOT match", fmt.Errorf("pod not found"), "", false},
+		{"container not found should NOT match", fmt.Errorf("container not found"), "", false},
+		{"generic error", fmt.Errorf("connection refused"), "", false},
+		{"nil error", nil, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isMissingShellError(tt.err, tt.stderr))
+		})
+	}
 }
 
 func TestHandlePodShellExited_SetsStatusAndReturnsToBrowsing(t *testing.T) {

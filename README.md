@@ -158,7 +158,8 @@ k8sweep -k /path/to/config -c my-cluster
 - Backend order: tries `kubectl exec` first, then falls back to client-go exec streaming.
 - Shell fallback order: `/bin/bash` -> `/bin/sh` -> `/busybox/sh`.
 - `kubectl` backend uses the same kube target as k8sweep (`--context` and explicit `--kubeconfig` when provided), so shell sessions stay on the same cluster/context as the UI.
-- Shell is blocked for terminal pod states (`Completed`, `Failed`, `Evicted`).
+- Shell is blocked for terminal pod states (`Completed`, `Failed`, `Evicted`, `Terminating`, `Pending`) and for containers not in Running state.
+- Warning prompt for risky pod states (`CrashLoopBackOff`, `OOMKilled`) — press `e` twice to confirm.
 
 ### In namespace switcher
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"time"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -50,14 +50,50 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
 
+	// No contexts at all — kubeconfig is missing or empty
+	if len(rawConfig.Contexts) == 0 {
+		return nil, fmt.Errorf(
+			"no kubeconfig found\n\n" +
+				"  k8sweep requires a valid kubeconfig to connect to a Kubernetes cluster.\n\n" +
+				"  Try one of:\n" +
+				"    • Set KUBECONFIG environment variable:  export KUBECONFIG=/path/to/kubeconfig\n" +
+				"    • Use the --kubeconfig/-k flag:            k8sweep -k /path/to/kubeconfig\n" +
+				"    • Place config at default path:         ~/.kube/config\n")
+	}
+
 	contextName := rawConfig.CurrentContext
 	if cfg.ContextOverride != "" {
 		contextName = cfg.ContextOverride
 	}
 
+	if contextName == "" {
+		// Config exists but no current-context is set
+		available := make([]string, 0, len(rawConfig.Contexts))
+		for name := range rawConfig.Contexts {
+			available = append(available, name)
+		}
+		sort.Strings(available)
+		return nil, fmt.Errorf(
+			"no current-context set in kubeconfig\n\n"+
+				"  Available contexts: %s\n\n"+
+				"  Try one of:\n"+
+				"    • Set a context:  kubectl config use-context <context-name>\n"+
+				"    • Use the flag:   k8sweep --context <context-name>\n",
+			strings.Join(available, ", "))
+	}
+
 	ctxInfo, ok := rawConfig.Contexts[contextName]
 	if !ok {
-		return nil, fmt.Errorf("context %q not found in kubeconfig", contextName)
+		available := make([]string, 0, len(rawConfig.Contexts))
+		for name := range rawConfig.Contexts {
+			available = append(available, name)
+		}
+		sort.Strings(available)
+		return nil, fmt.Errorf(
+			"context %q not found in kubeconfig\n\n"+
+				"  Available contexts: %s\n\n"+
+				"  Try: k8sweep --context <context-name>\n",
+			contextName, strings.Join(available, ", "))
 	}
 
 	namespace := ctxInfo.Namespace
@@ -103,17 +139,6 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		},
 	}
 
-	// Probe metrics API availability (3s timeout, non-blocking on failure)
-	probeCtx, probeCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer probeCancel()
-	if CheckMetricsAvailable(probeCtx, c) {
-		mc, mcErr := metricsclient.NewForConfig(restConfig)
-		if mcErr == nil {
-			c.metricsAvailable = true
-			c.metricsClient = NewMetricsClient(mc)
-		}
-	}
-
 	return c, nil
 }
 
@@ -149,6 +174,17 @@ func (c *Client) KubeconfigPath() string {
 // MetricsAvailable returns true if the Metrics API is available in the cluster.
 func (c *Client) MetricsAvailable() bool {
 	return c.metricsAvailable
+}
+
+// EnableMetrics activates metrics support after an async probe confirms availability.
+func (c *Client) EnableMetrics() error {
+	mc, err := metricsclient.NewForConfig(c.restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create metrics client: %w", err)
+	}
+	c.metricsAvailable = true
+	c.metricsClient = NewMetricsClient(mc)
+	return nil
 }
 
 // GetMetricsClient returns the metrics client, or nil if metrics are unavailable.
