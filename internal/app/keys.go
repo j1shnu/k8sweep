@@ -21,11 +21,14 @@ type KeyMap struct {
 	Shell       key.Binding
 	Events      key.Binding
 	Logs        key.Binding
-	Help        key.Binding
-	Quit        key.Binding
-	Confirm     key.Binding
-	Cancel      key.Binding
-	SelectAll   key.Binding
+	Help             key.Binding
+	Quit             key.Binding
+	Confirm          key.Binding
+	Cancel           key.Binding
+	SelectAll        key.Binding
+	ControllerFilter key.Binding
+	Toggle           key.Binding
+	ToggleAllGroups  key.Binding
 }
 
 // DefaultKeyMap returns the default keybindings.
@@ -119,6 +122,18 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("a"),
 			key.WithHelp("a", "select/deselect all pods"),
 		),
+		ControllerFilter: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "cycle controller filter"),
+		),
+		Toggle: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "expand/collapse group"),
+		),
+		ToggleAllGroups: key.NewBinding(
+			key.WithKeys("T"),
+			key.WithHelp("T", "expand/collapse all groups"),
+		),
 	}
 }
 
@@ -131,8 +146,8 @@ func (k KeyMap) ShortHelp() []key.Binding {
 // FullHelp returns grouped keybindings for the full help view.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.PageUp, k.PageDown, k.GoBottom, k.Search, k.Select, k.SelectAll},
-		{k.Delete, k.ForceDelete, k.Refresh, k.Filter},
+		{k.Up, k.Down, k.PageUp, k.PageDown, k.GoBottom, k.Search, k.Select, k.SelectAll, k.Toggle, k.ToggleAllGroups},
+		{k.Delete, k.ForceDelete, k.Refresh, k.Filter, k.ControllerFilter},
 		{k.Sort, k.Info, k.Shell, k.Events, k.Logs, k.Namespace, k.Help, k.Quit},
 	}
 }

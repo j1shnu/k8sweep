@@ -58,7 +58,7 @@ func manyPods(n int) []k8s.PodInfo {
 func TestFilterToggleOn_WithCachedPods_NoRefetch(t *testing.T) {
 	m := newTestModel(samplePods())
 	assert.False(t, m.filter.ShowDirtyOnly)
-	assert.Equal(t, 5, m.podList.Len())
+	assert.Equal(t, 5, m.podList.PodCount())
 
 	// Toggle filter ON
 	result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
@@ -68,7 +68,7 @@ func TestFilterToggleOn_WithCachedPods_NoRefetch(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.True(t, updated.filter.ShowDirtyOnly)
 	// Only dirty pods: failed-1, completed-1, crash-1
-	assert.Equal(t, 3, updated.podList.Len())
+	assert.Equal(t, 3, updated.podList.PodCount())
 	assert.Contains(t, updated.statusMsg, "dirty pods only")
 }
 
@@ -87,7 +87,7 @@ func TestFilterToggleOff_WithCachedPods_NoRefetch(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.False(t, updated.filter.ShowDirtyOnly)
 	// All pods restored from cache
-	assert.Equal(t, 5, updated.podList.Len())
+	assert.Equal(t, 5, updated.podList.PodCount())
 	assert.Contains(t, updated.statusMsg, "all pods")
 }
 
@@ -111,14 +111,14 @@ func TestHandlePodsLoaded_CachesAllPods(t *testing.T) {
 		Pods:    samplePods(),
 		FetchID: 42,
 	}
-	updated := m.handlePodsLoaded(msg)
+	updated, _ := m.handlePodsLoaded(msg)
 
 	// allPods should contain the full list
 	require.NotNil(t, updated.allPods)
 	assert.Equal(t, 5, len(updated.allPods))
 	assert.Equal(t, 5, updated.totalPodCount)
 	// Display should show all pods (filter is off)
-	assert.Equal(t, 5, updated.podList.Len())
+	assert.Equal(t, 5, updated.podList.PodCount())
 }
 
 func TestHandlePodsLoaded_FilterActive_CachesAllShowsDirty(t *testing.T) {
@@ -130,14 +130,14 @@ func TestHandlePodsLoaded_FilterActive_CachesAllShowsDirty(t *testing.T) {
 		Pods:    samplePods(),
 		FetchID: 42,
 	}
-	updated := m.handlePodsLoaded(msg)
+	updated, _ := m.handlePodsLoaded(msg)
 
 	// allPods should still contain the FULL list
 	require.NotNil(t, updated.allPods)
 	assert.Equal(t, 5, len(updated.allPods))
 	assert.Equal(t, 5, updated.totalPodCount)
 	// Display should show only dirty pods
-	assert.Equal(t, 3, updated.podList.Len())
+	assert.Equal(t, 3, updated.podList.PodCount())
 }
 
 func TestHandlePodsLoaded_DiscardsStaleFetch(t *testing.T) {
@@ -148,10 +148,10 @@ func TestHandlePodsLoaded_DiscardsStaleFetch(t *testing.T) {
 		Pods:    nil,
 		FetchID: 99, // stale
 	}
-	updated := m.handlePodsLoaded(msg)
+	updated, _ := m.handlePodsLoaded(msg)
 
 	// Should not change anything
-	assert.Equal(t, 5, updated.podList.Len())
+	assert.Equal(t, 5, updated.podList.PodCount())
 	assert.Equal(t, 5, len(updated.allPods))
 }
 
@@ -217,10 +217,10 @@ func TestPodsLoaded_IntegrationWithFakeClient(t *testing.T) {
 		Pods:    pods,
 		FetchID: m.fetchID,
 	}
-	updated := m.handlePodsLoaded(msg)
+	updated, _ := m.handlePodsLoaded(msg)
 
 	assert.Equal(t, 1, len(updated.allPods))
-	assert.Equal(t, 1, updated.podList.Len())
+	assert.Equal(t, 1, updated.podList.PodCount())
 	assert.Equal(t, "test-pod", updated.allPods[0].Name)
 }
 
@@ -289,7 +289,8 @@ func TestSingleStepNavigation_DoesNotCrossPage(t *testing.T) {
 
 	p := m.podList.CursorItem()
 	require.NotNil(t, p)
-	assert.Equal(t, "pod-08", p.Name) // page size 8; clamped on page 1
+	// page size 8; row 0 is controller header, pods at rows 1-7 → clamped at row 7 = pod-07
+	assert.Equal(t, "pod-07", p.Name)
 }
 
 func TestBuildStatusSummary(t *testing.T) {

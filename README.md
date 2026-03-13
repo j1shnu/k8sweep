@@ -8,11 +8,14 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 ## Features
 
 - Interactive TUI with vim-style navigation (`j`/`k`, `gg`, `G`, page switch with `h`/`l` or `←`/`→`)
+- Tree view: pods grouped by controller (Deployment, StatefulSet, DaemonSet, Job, CronJob, Standalone) with collapsible groups (`tab`/`T`)
 - Real-time pod updates via Kubernetes Watch API (no polling)
 - Multi-select pods for batch deletion with scrollable delete preview (namespace, status, age)
 - Post-delete summary showing successes, failures, and error details
 - Force delete stuck pods (`x`) with prominent warning and graceful shutdown bypass
-- Sort columns by name, status, age, restarts, CPU, or memory (`s` to cycle asc/desc)
+- Controller-aware ownership: pods grouped under their top-level controller with status summary
+- Filter pods by controller type (`c` to cycle through controller types)
+- Sort columns by name, status, age, restarts, owner, CPU, or memory (`s` to cycle asc/desc)
 - Search/filter pods by name in real-time (`/` to search)
 - Smart pod-name truncation (middle ellipsis) to keep similar long pod names distinguishable
 - Pod detail panel with labels, annotations, containers, and conditions (`i` to inspect)
@@ -100,8 +103,10 @@ k8sweep -k /path/to/config -c my-cluster
 | `l` / `h` / `→` / `←` | Next / previous page |
 | `gg` | Go to first pod |
 | `G` | Go to last pod |
-| `space` | Toggle pod selection |
+| `space` | Toggle pod selection (on controller header: select/deselect all in group) |
 | `a` | Select / deselect all |
+| `tab` | Expand/collapse controller group |
+| `T` | Expand/collapse all groups |
 | `/` | Search pods by name |
 
 ### Actions
@@ -112,6 +117,7 @@ k8sweep -k /path/to/config -c my-cluster
 | `x` | Force delete selected pods |
 | `r` | Refresh pod list |
 | `f` | Toggle dirty pod filter |
+| `c` | Cycle controller filter (All → Deployment → StatefulSet → DaemonSet → Job → CronJob → Standalone) |
 | `s` | Sort by column (asc/desc) |
 | `i` | View pod details |
 | `n` | Switch namespace |

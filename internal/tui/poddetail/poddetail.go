@@ -361,6 +361,9 @@ func (m Model) renderDetailLines() []string {
 	lines = append(lines, field("Pod IP", d.PodIP))
 	lines = append(lines, field("Host IP", d.HostIP))
 	lines = append(lines, field("QoS Class", d.QoSClass))
+	if d.ResolvedController != "" {
+		lines = append(lines, field("Controller", d.ResolvedController))
+	}
 	if d.Owner != "" {
 		lines = append(lines, field("Owner", d.Owner))
 	}

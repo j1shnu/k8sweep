@@ -145,3 +145,98 @@ func TestTruncate(t *testing.T) {
 	assert.Equal(t, "hel...", truncate("hello world", 6))
 	assert.Equal(t, "ab", truncate("abc", 2))
 }
+
+func TestFormatOwner(t *testing.T) {
+	tests := []struct {
+		name     string
+		ref      k8s.ControllerRef
+		maxWidth int
+		want     string
+	}{
+		{
+			name:     "deployment uses short prefix",
+			ref:      k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "nginx"},
+			maxWidth: 30,
+			want:     "Deploy/nginx",
+		},
+		{
+			name:     "statefulset uses STS prefix",
+			ref:      k8s.ControllerRef{Kind: k8s.ControllerStatefulSet, Name: "redis"},
+			maxWidth: 30,
+			want:     "STS/redis",
+		},
+		{
+			name:     "daemonset uses DS prefix",
+			ref:      k8s.ControllerRef{Kind: k8s.ControllerDaemonSet, Name: "fluentd"},
+			maxWidth: 30,
+			want:     "DS/fluentd",
+		},
+		{
+			name:     "job keeps full prefix",
+			ref:      k8s.ControllerRef{Kind: k8s.ControllerJob, Name: "migrate"},
+			maxWidth: 30,
+			want:     "Job/migrate",
+		},
+		{
+			name:     "cronjob keeps full prefix",
+			ref:      k8s.ControllerRef{Kind: k8s.ControllerCronJob, Name: "backup"},
+			maxWidth: 30,
+			want:     "CronJob/backup",
+		},
+		{
+			name:     "standalone returns Standalone",
+			ref:      k8s.ControllerRef{Kind: k8s.ControllerStandalone, Name: "debug"},
+			maxWidth: 30,
+			want:     "Standalone",
+		},
+		{
+			name:     "empty kind returns Standalone",
+			ref:      k8s.ControllerRef{},
+			maxWidth: 30,
+			want:     "Standalone",
+		},
+		{
+			name:     "truncates long names",
+			ref:      k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "very-long-deployment-name"},
+			maxWidth: 15,
+			want:     "Deploy/very-...",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatOwner(tt.ref, tt.maxWidth)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestView_OwnerColumn(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{
+			Name: "nginx-abc", Namespace: "default", Status: k8s.StatusFailed,
+			Age:        time.Hour,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "nginx"},
+		},
+		{
+			Name: "debug-pod", Namespace: "default", Status: k8s.StatusRunning,
+			Age:        time.Minute,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerStandalone},
+		},
+	}
+	m := New(pods, common.DeleteNormal, nil).SetSize(120, 40)
+	view := m.View()
+	assert.Contains(t, view, "OWNER")
+	assert.Contains(t, view, "Deploy/nginx")
+	assert.Contains(t, view, "Standalone")
+}
+
+func TestView_RunningPodWarning(t *testing.T) {
+	warnings := []string{
+		"nginx-abc is Running — deletion will interrupt active workload",
+	}
+	m := New(testPods(), common.DeleteNormal, warnings).SetSize(120, 40)
+	view := m.View()
+	assert.Contains(t, view, "Warnings:")
+	assert.Contains(t, view, "Running")
+	assert.Contains(t, view, "interrupt active workload")
+}

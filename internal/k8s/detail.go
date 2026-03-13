@@ -10,19 +10,20 @@ import (
 
 // PodDetail holds comprehensive information for a single pod.
 type PodDetail struct {
-	Name        string
-	Namespace   string
-	Status      PodStatus
-	Node        string
-	Age         time.Duration
-	PodIP       string
-	HostIP      string
-	QoSClass    string
-	Owner       string
-	Labels      map[string]string
-	Annotations map[string]string
-	Containers  []ContainerDetail
-	Conditions  []PodCondition
+	Name               string
+	Namespace          string
+	Status             PodStatus
+	Node               string
+	Age                time.Duration
+	PodIP              string
+	HostIP             string
+	QoSClass           string
+	Owner              string // raw ownerRef e.g. "ReplicaSet/my-app-abc123"
+	ResolvedController string // resolved top-level controller e.g. "Deployment/my-app"
+	Labels             map[string]string
+	Annotations        map[string]string
+	Containers         []ContainerDetail
+	Conditions         []PodCondition
 }
 
 // ContainerDetail holds per-container information.

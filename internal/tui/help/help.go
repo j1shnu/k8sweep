@@ -126,6 +126,16 @@ func (m Model) renderLines() []string {
 	}
 
 	lines = append(lines, "")
+	lines = append(lines, styles.Title.Render("Tree View"))
+	lines = append(lines, "  "+styles.LabelText.Render("[tab]")+"  "+styles.FooterHelp.Render("expand/collapse group (on controller header)"))
+	lines = append(lines, "  "+styles.LabelText.Render("[T]")+"  "+styles.FooterHelp.Render("expand/collapse all groups"))
+	lines = append(lines, "  "+styles.LabelText.Render("[space]")+"  "+styles.FooterHelp.Render("on controller header: select/deselect all pods in group"))
+
+	lines = append(lines, "")
+	lines = append(lines, styles.Title.Render("Controller Filter"))
+	lines = append(lines, "  "+styles.LabelText.Render("[c]")+"  "+styles.FooterHelp.Render("cycle: All → Deployment → StatefulSet → DaemonSet → Job → CronJob → Standalone"))
+
+	lines = append(lines, "")
 	lines = append(lines, styles.Title.Render("In Search"))
 	lines = append(lines, "  "+styles.LabelText.Render("[type]")+"  "+styles.FooterHelp.Render("filter pods by name (real-time)"))
 	lines = append(lines, "  "+styles.LabelText.Render("[enter]")+"  "+styles.FooterHelp.Render("confirm search filter"))

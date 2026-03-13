@@ -90,9 +90,14 @@ func DeletePods(ctx context.Context, client *Client, pods []PodInfo) []DeleteRes
 // mapPodToInfo maps a Kubernetes Pod to the domain PodInfo type.
 func mapPodToInfo(pod corev1.Pod) PodInfo {
 	owner := ""
+	controller := ControllerRef{Kind: ControllerStandalone}
 	if len(pod.OwnerReferences) > 0 {
 		ref := pod.OwnerReferences[0]
 		owner = ref.Kind + "/" + ref.Name
+		controller = ControllerRef{
+			Kind: mapOwnerKind(ref.Kind),
+			Name: ref.Name,
+		}
 	}
 	var deletionTime *time.Time
 	if pod.DeletionTimestamp != nil {
@@ -108,7 +113,28 @@ func mapPodToInfo(pod corev1.Pod) PodInfo {
 		RestartCount: totalRestartCount(pod),
 		NodeName:     pod.Spec.NodeName,
 		OwnerRef:     owner,
+		Controller:   controller,
 		DeletionTime: deletionTime,
+	}
+}
+
+// mapOwnerKind maps a Kubernetes ownerReference kind string to a ControllerKind.
+func mapOwnerKind(kind string) ControllerKind {
+	switch kind {
+	case "ReplicaSet":
+		return ControllerReplicaSet
+	case "StatefulSet":
+		return ControllerStatefulSet
+	case "DaemonSet":
+		return ControllerDaemonSet
+	case "Job":
+		return ControllerJob
+	case "Deployment":
+		return ControllerDeployment
+	case "CronJob":
+		return ControllerCronJob
+	default:
+		return ControllerKind(kind)
 	}
 }
 

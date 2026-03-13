@@ -172,6 +172,18 @@ func (m Model) fetchPodLogsCmd(namespace, name, container string) tea.Cmd {
 	}
 }
 
+const ownerResolveTimeout = 10 * time.Second
+
+func (m Model) resolveOwnersCmd(pods []k8s.PodInfo, fetchID uint64) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), ownerResolveTimeout)
+		defer cancel()
+		resolved := k8s.ResolveOwners(ctx, client.Clientset(), pods)
+		return OwnerResolvedMsg{Pods: resolved, FetchID: fetchID}
+	}
+}
+
 func searchDebounceCmd(seq uint64, query string) tea.Cmd {
 	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
 		return SearchDebouncedMsg{Seq: seq, Query: query}
