@@ -2,7 +2,7 @@
 
 A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete dirty pods (Failed, Completed, Evicted, CrashLoopBackOff, OOMKilled) interactively.
 
-![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
 ## Features
@@ -10,7 +10,7 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 - Interactive TUI with vim-style navigation (`j`/`k`, `gg`, `G`, page switch with `h`/`l` or `←`/`→`)
 - Tree view: pods grouped by controller (Deployment, StatefulSet, DaemonSet, Job, CronJob, Standalone) with collapsible groups (`tab`/`T`)
 - Real-time pod updates via Kubernetes Watch API (no polling)
-- Multi-select pods for batch deletion with scrollable delete preview (namespace, status, age)
+- Multi-select pods for batch deletion with scrollable delete preview (namespace, status, age, owner) with Running pod warnings
 - Post-delete summary showing successes, failures, and error details
 - Force delete stuck pods (`x`) with prominent warning and graceful shutdown bypass
 - Controller-aware ownership: pods grouped under their top-level controller with status summary
@@ -88,9 +88,12 @@ k8sweep
 k8sweep --kubeconfig /path/to/config
 k8sweep --context my-cluster
 k8sweep --namespace kube-system
+k8sweep --all-namespaces
 
 # Shorthand flags
-k8sweep -k /path/to/config -c my-cluster
+k8sweep -k /path/to/config -c my-cluster -n kube-system
+k8sweep -A        # all namespaces
+k8sweep -v        # print version and exit
 ```
 
 ## Keybindings

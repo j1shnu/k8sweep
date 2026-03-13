@@ -12,6 +12,11 @@
 - **Never use grep/Grep** for Go symbol searches — LSP is semantically accurate
 - Reserve grep only for non-Go files (README, YAML, Makefile) or raw text patterns
 
+## Documentation
+
+- **Update README.md** when adding/changing features, keybindings, CLI flags, or user-facing behavior
+- Keep the keybindings table, features list, and usage examples in sync with the code
+
 ## Commit Style
 
 - Format: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
