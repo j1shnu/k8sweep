@@ -130,6 +130,8 @@ func (m Model) renderLines() []string {
 	lines = append(lines, "  "+styles.LabelText.Render("[tab]")+"  "+styles.FooterHelp.Render("expand/collapse group (on controller header)"))
 	lines = append(lines, "  "+styles.LabelText.Render("[T]")+"  "+styles.FooterHelp.Render("expand/collapse all groups"))
 	lines = append(lines, "  "+styles.LabelText.Render("[space]")+"  "+styles.FooterHelp.Render("on controller header: select/deselect all pods in group"))
+	lines = append(lines, "  "+styles.LabelText.Render("[i]")+"  "+styles.FooterHelp.Render("on controller header: drill down (show only its pods)"))
+	lines = append(lines, "  "+styles.LabelText.Render("[esc]")+"  "+styles.FooterHelp.Render("exit controller drill-down"))
 
 	lines = append(lines, "")
 	lines = append(lines, styles.Title.Render("Controller Filter"))

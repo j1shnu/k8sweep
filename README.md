@@ -18,7 +18,8 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 - Sort columns by name, status, age, restarts, owner, CPU, or memory (`s` to cycle asc/desc)
 - Search/filter pods by name in real-time (`/` to search)
 - Smart pod-name truncation (middle ellipsis) to keep similar long pod names distinguishable
-- Pod detail panel with labels, annotations, containers, and conditions (`i` to inspect)
+- Pod detail panel with labels, annotations, containers, and conditions (`i` to inspect a pod)
+- Controller drill-down: press `i` on a controller row to focus on its pods only, `esc` to exit
 - View recent Kubernetes events for a pod from detail view (`v`)
 - View recent container logs (last 100 lines) from detail view (`o`, with container picker for multi-container pods)
 - Open interactive pod/container shell from pod detail (`e`, with container picker for multi-container pods)
@@ -27,8 +28,8 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 - Namespace switcher with fuzzy filtering
 - Header health summary (`Crit/Warn/OK`) with non-zero counts only
 - Standalone pod warnings (pods with no controller)
-- Status-colored pod list (red=Failed, cyan=Running, gray=Completed, orange=Evicted)
-- Sticky preferences: sort, filter, namespace, collapse, and search state persist across sessions
+- Status-colored pod list (red=Failed, cyan=Running, gray=Completed, orange=Evicted) with distinct controller row styling
+- Sticky preferences: sort, filter, namespace, collapse, search, and controller drill-down persist across sessions
 - Respects `KUBECONFIG` env, `~/.kube/config`, and current context
 
 ## Demo
@@ -123,7 +124,8 @@ k8sweep -v        # print version and exit
 | `f` | Toggle dirty pod filter |
 | `c` | Cycle controller filter (All → Deployment → StatefulSet → DaemonSet → Job → CronJob → Standalone) |
 | `s` | Sort by column (asc/desc) |
-| `i` | View pod details |
+| `i` | On pod: view pod details. On controller: drill down (show only its pods) |
+| `Esc` | Exit controller drill-down (in browsing mode) |
 | `n` | Switch namespace |
 | `?` | Toggle help overlay |
 | `q` / `Ctrl+C` | Quit |
@@ -179,6 +181,16 @@ k8sweep -v        # print version and exit
 | `Enter` | Confirm selection (opens shell or fetches logs) |
 | `Esc` | Cancel |
 
+### Controller drill-down
+
+- Press `i` on a controller row (e.g. `Deployment/nginx`) to filter the view to only that controller's pods.
+- A `[CONTROLLER]` badge appears below the pod list showing which controller is focused.
+- All normal actions work inside drill-down: select, delete, sort, search, pod detail (`i` on a pod row), etc.
+- Press `i` on the controller header again or `Esc` to exit drill-down and return to the full pod list.
+- Drill-down stacks with other filters (dirty filter, controller type filter, search) — they all apply together.
+- Switching namespace automatically clears the drill-down.
+- The drill-down selection is saved in preferences and restored on next launch.
+
 ### Shell behavior
 
 - Backend order: tries `kubectl exec` first, then falls back to client-go exec streaming.
@@ -222,6 +234,7 @@ k8sweep automatically remembers your UI preferences across sessions. The followi
 | Namespace / all-namespaces | Switch namespace via `n` |
 | Collapse/expand all groups | Press `T` |
 | Search query | Confirm with `Enter` or clear with `Esc` |
+| Controller drill-down | Press `i` on controller row or `Esc` to exit |
 
 Preferences are saved to:
 - **macOS**: `~/Library/Application Support/k8sweep/preferences.json`

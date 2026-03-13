@@ -112,7 +112,8 @@ func (m Model) renderControllerRow(row DisplayRow, isCursor bool) string {
 		}
 	}
 
-	line := fmt.Sprintf("%s%s%s %s  (%s)%s", pointer, checkbox, indicator, row.GroupKey, summary, metricsStr)
+	groupLabel := styles.ControllerRow.Render(indicator + " " + row.GroupKey)
+	line := fmt.Sprintf("%s%s%s  (%s)%s", pointer, checkbox, groupLabel, summary, metricsStr)
 
 	if isCursor {
 		line = styles.SelectedRow.Render(line)

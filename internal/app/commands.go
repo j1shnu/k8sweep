@@ -203,12 +203,13 @@ func (m Model) savePrefsCmd() tea.Cmd {
 		ns = config.AllNamespacesSentinel
 	}
 	prefs := config.Preferences{
-		SortColumn:   podlist.SortColumnLabel(m.podList.SortColumn()),
-		SortOrder:    sortOrderString(m.podList.SortOrder()),
-		DirtyFilter:  m.filter.ShowDirtyOnly,
-		Namespace:    ns,
-		AllCollapsed: !m.podList.AnyExpanded(),
-		SearchQuery:  m.searchQuery,
+		SortColumn:          podlist.SortColumnLabel(m.podList.SortColumn()),
+		SortOrder:           sortOrderString(m.podList.SortOrder()),
+		DirtyFilter:         m.filter.ShowDirtyOnly,
+		Namespace:           ns,
+		AllCollapsed:        !m.podList.AnyExpanded(),
+		SearchQuery:         m.searchQuery,
+		ControllerDrillDown: m.controllerDrillDown,
 	}
 	path := m.prefsPath
 	return func() tea.Msg {

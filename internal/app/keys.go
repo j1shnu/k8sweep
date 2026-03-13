@@ -88,7 +88,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Info: key.NewBinding(
 			key.WithKeys("i"),
-			key.WithHelp("i", "pod details"),
+			key.WithHelp("i", "pod details / drill into controller"),
 		),
 		Shell: key.NewBinding(
 			key.WithKeys("e"),

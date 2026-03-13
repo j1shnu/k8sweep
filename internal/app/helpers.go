@@ -28,14 +28,17 @@ func (m Model) activeSearchQuery() string {
 	return m.searchQuery
 }
 
-// applyFilters applies dirty filter, controller filter, and name search to a pod list.
-func applyFilters(pods []k8s.PodInfo, filter k8s.ResourceFilter, searchQuery string) []k8s.PodInfo {
+// applyFilters applies dirty filter, controller filter, drill-down, and name search to a pod list.
+func applyFilters(pods []k8s.PodInfo, filter k8s.ResourceFilter, searchQuery string, controllerDrillDown string) []k8s.PodInfo {
 	result := pods
 	if filter.ShowDirtyOnly {
 		result = k8s.FilterDirtyPods(result)
 	}
 	if filter.ControllerKindFilter != "" {
 		result = filterByControllerKind(result, filter.ControllerKindFilter)
+	}
+	if controllerDrillDown != "" {
+		result = filterByControllerGroup(result, controllerDrillDown)
 	}
 	if searchQuery != "" {
 		result = filterByName(result, searchQuery)
@@ -106,6 +109,25 @@ func (m Model) handleMetricsProbed(msg MetricsProbedMsg) (Model, tea.Cmd) {
 	newModel.metricsAvailable = true
 	newModel.podList = m.podList.SetMetricsAvailable(true)
 	return newModel, newModel.fetchMetricsCmd()
+}
+
+// filterByControllerGroup returns pods whose controller group key matches the given key.
+func filterByControllerGroup(pods []k8s.PodInfo, groupKey string) []k8s.PodInfo {
+	filtered := make([]k8s.PodInfo, 0, len(pods))
+	for _, p := range pods {
+		if controllerGroupKeyForPod(p) == groupKey {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
+}
+
+// controllerGroupKeyForPod returns the group key for a pod, matching the tree.go logic.
+func controllerGroupKeyForPod(p k8s.PodInfo) string {
+	if p.Controller.Kind == k8s.ControllerStandalone || p.Controller.Kind == "" {
+		return "Standalone"
+	}
+	return string(p.Controller.Kind) + "/" + p.Controller.Name
 }
 
 func isShellEligibleStatus(status k8s.PodStatus) bool {

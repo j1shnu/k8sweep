@@ -94,6 +94,11 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m.handleFilterKey()
 	case key.Matches(msg, m.keys.ControllerFilter):
 		return m.handleControllerFilterKey()
+	case msg.String() == "esc":
+		if m.controllerDrillDown != "" {
+			return m.exitControllerDrillDown()
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -127,7 +132,7 @@ func (m Model) handleRefreshKey() (Model, tea.Cmd) {
 		if m.lastMetrics != nil {
 			allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
 		}
-		displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+		displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 		newModel.allPods = allPods
 		newModel.totalPodCount = len(allPods)
 		newModel.podList = m.podList.SetItemsSorted(displayPods)
@@ -142,6 +147,21 @@ func (m Model) handleRefreshKey() (Model, tea.Cmd) {
 }
 
 func (m Model) handleInfoKey() (Model, tea.Cmd) {
+	row := m.podList.CursorRow()
+	if row == nil {
+		return m, nil
+	}
+
+	// Controller row: drill down into this controller's pods
+	if row.Kind == podlist.RowController && row.Header != nil {
+		// Toggle: if already drilled into this controller, exit drill-down
+		if m.controllerDrillDown == row.Header.Key {
+			return m.exitControllerDrillDown()
+		}
+		return m.enterControllerDrillDown(row.Header.Key)
+	}
+
+	// Pod row: open pod detail overlay
 	pod := m.podList.CursorItem()
 	if pod == nil {
 		return m, nil
@@ -153,6 +173,32 @@ func (m Model) handleInfoKey() (Model, tea.Cmd) {
 	newModel.detailStatus = ""
 	newModel.podDetail = m.podDetail.SetSize(m.width, m.height-common.HeaderHeight-1).SetLoading()
 	return newModel, newModel.fetchPodDetailCmd(pod.Namespace, pod.Name)
+}
+
+func (m Model) enterControllerDrillDown(groupKey string) (Model, tea.Cmd) {
+	newModel := m
+	newModel.controllerDrillDown = groupKey
+	newModel.statusMsg = ""
+	if m.allPods != nil {
+		displayPods := applyFilters(m.allPods, m.filter, m.activeSearchQuery(), groupKey)
+		newModel.podList = m.podList.SetItemsSorted(displayPods).GoTop()
+		newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
+			SetStatusSummary(buildStatusSummary(m.allPods))
+	}
+	return newModel, newModel.savePrefsCmd()
+}
+
+func (m Model) exitControllerDrillDown() (Model, tea.Cmd) {
+	newModel := m
+	newModel.controllerDrillDown = ""
+	newModel.statusMsg = ""
+	if m.allPods != nil {
+		displayPods := applyFilters(m.allPods, m.filter, m.activeSearchQuery(), "")
+		newModel.podList = m.podList.SetItemsSorted(displayPods).GoTop()
+		newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
+			SetStatusSummary(buildStatusSummary(m.allPods))
+	}
+	return newModel, newModel.savePrefsCmd()
 }
 
 func (m Model) handleSortKey() (Model, tea.Cmd) {
@@ -180,7 +226,7 @@ func (m Model) handleFilterKey() (Model, tea.Cmd) {
 		newModel.statusMsg = "Filter: showing all pods"
 	}
 	if m.allPods != nil {
-		displayPods := applyFilters(m.allPods, newModel.filter, m.activeSearchQuery())
+		displayPods := applyFilters(m.allPods, newModel.filter, m.activeSearchQuery(), m.controllerDrillDown)
 		newModel.podList = m.podList.SetItemsSorted(displayPods)
 		// Turning filter OFF should reset pagination/cursor to page 1.
 		if !newFilter {
@@ -206,7 +252,7 @@ func (m Model) handleControllerFilterKey() (Model, tea.Cmd) {
 		newModel.statusMsg = "Controller filter: " + string(nextKind)
 	}
 	if m.allPods != nil {
-		displayPods := applyFilters(m.allPods, newModel.filter, m.activeSearchQuery())
+		displayPods := applyFilters(m.allPods, newModel.filter, m.activeSearchQuery(), m.controllerDrillDown)
 		newModel.podList = m.podList.SetItemsSorted(displayPods).GoTop()
 		newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
 			SetStatusSummary(buildStatusSummary(m.allPods))

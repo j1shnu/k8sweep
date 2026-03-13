@@ -87,6 +87,8 @@ type Model struct {
 	shellWarningAcked bool       // true after user acknowledges shell warning for risky pod states
 	containerPickFor  pickPurpose // what the container picker is being used for
 
+	controllerDrillDown string // group key for drill-down filter (empty = full view)
+
 	// Search
 	searchInput textinput.Model
 	searchQuery string // active name filter (empty = no filter)
@@ -167,9 +169,10 @@ func NewModel(client *k8s.Client, opts ...ModelOption) Model {
 		nsSwitcher:        namespace.New(),
 		help:              help.New(keys.FullHelp()),
 		containerSel:      containerpicker.New(),
-		searchQuery:       cfg.prefs.SearchQuery,
-		prefsPath:         cfg.prefsPath,
-		savedAllCollapsed: cfg.prefs.AllCollapsed,
+		searchQuery:         cfg.prefs.SearchQuery,
+		controllerDrillDown: cfg.prefs.ControllerDrillDown,
+		prefsPath:           cfg.prefsPath,
+		savedAllCollapsed:   cfg.prefs.AllCollapsed,
 	}
 }
 
@@ -368,6 +371,9 @@ func (m Model) View() string {
 			status = "\n " + styles.ErrorMessage.Render("Error: "+m.err.Error())
 		}
 		filterHints := ""
+		if m.controllerDrillDown != "" {
+			filterHints += "\n " + styles.FilterBadge.Render(" CONTROLLER ") + " " + m.controllerDrillDown + "  " + styles.FooterHelp.Render("[esc] exit")
+		}
 		if m.filter.ControllerKindFilter != "" {
 			filterHints += "\n " + styles.FilterBadge.Render(" CTRL ") + " " + string(m.filter.ControllerKindFilter)
 		}
@@ -409,7 +415,7 @@ func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
 		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
 	}
 
-	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 	totalCount := len(allPods)
 
 	newModel := m
@@ -432,6 +438,7 @@ func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
 	// Use fetchID for owner resolution tracking (watchID is for watch events only)
 	resolveID := fetchSeq.Add(1)
 	newModel.fetchID = resolveID
+
 	return newModel, tea.Batch(m.watchPodsCmd(), newModel.resolveOwnersCmd(allPods, resolveID))
 }
 
@@ -453,7 +460,7 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) (Model, tea.Cmd) {
 		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
 	}
 
-	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 	totalCount := len(allPods)
 
 	newModel := m
@@ -492,7 +499,7 @@ func (m Model) handleOwnerResolved(msg OwnerResolvedMsg) Model {
 		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
 	}
 
-	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 
 	newModel := m
 	newModel.allPods = allPods
@@ -500,6 +507,7 @@ func (m Model) handleOwnerResolved(msg OwnerResolvedMsg) Model {
 	newModel.totalPodCount = len(allPods)
 	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
 		SetStatusSummary(buildStatusSummary(allPods))
+
 	return newModel
 }
 
@@ -516,12 +524,13 @@ func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
 
 	if m.allPods != nil {
 		allPods := k8s.MergePodMetrics(m.allPods, msg.Metrics)
-		displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+		displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 		newModel.allPods = allPods
 		newModel.pendingMetrics = nil
 		newModel.podList = m.podList.SetItemsSorted(displayPods)
 		newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
 			SetStatusSummary(buildStatusSummary(allPods))
+	
 		return newModel
 	}
 
