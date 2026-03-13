@@ -28,6 +28,7 @@ A terminal UI for cleaning up Kubernetes pods. Browse, filter, and batch-delete 
 - Header health summary (`Crit/Warn/OK`) with non-zero counts only
 - Standalone pod warnings (pods with no controller)
 - Status-colored pod list (red=Failed, cyan=Running, gray=Completed, orange=Evicted)
+- Sticky preferences: sort, filter, namespace, collapse, and search state persist across sessions
 - Respects `KUBECONFIG` env, `~/.kube/config`, and current context
 
 ## Demo
@@ -208,6 +209,25 @@ k8sweep considers these pod statuses as dirty — safe to clean up:
 | **ImagePullError** | Container waiting with reason `ImagePullBackOff` or `ErrImagePull` |
 | **OOMKilled** | Container terminated with reason `OOMKilled` (only if not currently running) |
 | **Terminating** (stuck) | Pod has been terminating for longer than 5 minutes past its `DeletionTimestamp` |
+
+## Preferences
+
+k8sweep automatically remembers your UI preferences across sessions. The following are persisted:
+
+| Preference | Trigger |
+|------------|---------|
+| Sort column & order | Press `s` |
+| Dirty pod filter | Press `f` |
+| Controller filter | Press `c` |
+| Namespace / all-namespaces | Switch namespace via `n` |
+| Collapse/expand all groups | Press `T` |
+| Search query | Confirm with `Enter` or clear with `Esc` |
+
+Preferences are saved to:
+- **macOS**: `~/Library/Application Support/k8sweep/preferences.json`
+- **Linux**: `~/.config/k8sweep/preferences.json` (or `$XDG_CONFIG_HOME/k8sweep/`)
+
+CLI flags (`-n`, `-A`) always override saved preferences. If the saved namespace no longer exists, k8sweep falls back gracefully. Missing or corrupt preferences files are silently ignored.
 
 ## Development
 
