@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jprasad/k8sweep/internal/config"
 	"github.com/jprasad/k8sweep/internal/k8s"
 	"github.com/jprasad/k8sweep/internal/tui/common"
 	"github.com/jprasad/k8sweep/internal/tui/containerpicker"
@@ -111,10 +112,19 @@ type Model struct {
 	metricsAvailable bool                      // true if Metrics API is available
 	pendingMetrics   map[string]k8s.PodMetrics // buffered metrics awaiting pod data merge
 	lastMetrics      map[string]k8s.PodMetrics // last known metrics, reused until fresh metrics arrive
+
+	prefsPath              string // path to preferences file (empty = no persistence)
+	initialCollapseApplied bool   // true after first pod load applies saved collapse state
+	savedAllCollapsed      bool   // saved preference: start with groups collapsed
 }
 
 // NewModel creates the initial application model.
-func NewModel(client *k8s.Client) Model {
+func NewModel(client *k8s.Client, opts ...ModelOption) Model {
+	cfg := modelConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	info := client.GetClusterInfo()
 	keys := DefaultKeyMap()
 
@@ -126,22 +136,57 @@ func NewModel(client *k8s.Client) Model {
 		pl = pl.SetShowNamespace(true)
 	}
 
+	// Apply saved sort preference
+	if cfg.prefs.SortColumn != "" {
+		col := podlist.ParseSortColumn(cfg.prefs.SortColumn)
+		order := podlist.ParseSortOrder(cfg.prefs.SortOrder)
+		pl = pl.SetSort(col, order)
+	}
+
 	watcher := k8s.NewPodWatcher(client.Clientset(), info.Namespace)
 
+	filter := k8s.ResourceFilter{ShowDirtyOnly: cfg.prefs.DirtyFilter}
+
+	hdr := header.New(info.ContextName, info.Namespace)
+	if cfg.prefs.DirtyFilter {
+		hdr = hdr.SetFilter(true, "")
+	}
+
 	return Model{
-		client:       client,
-		keys:         keys,
-		state:        stateBrowsing,
-		namespace:    info.Namespace,
-		fetchID:      initialID,
-		watcher:      watcher,
-		watchID:      1,
-		header:       header.New(info.ContextName, info.Namespace),
-		podList:      pl,
-		footer:       footer.New(keys.ShortHelp()),
-		nsSwitcher:   namespace.New(),
-		help:         help.New(keys.FullHelp()),
-		containerSel: containerpicker.New(),
+		client:            client,
+		keys:              keys,
+		state:             stateBrowsing,
+		filter:            filter,
+		namespace:         info.Namespace,
+		fetchID:           initialID,
+		watcher:           watcher,
+		watchID:           1,
+		header:            hdr,
+		podList:           pl,
+		footer:            footer.New(keys.ShortHelp()),
+		nsSwitcher:        namespace.New(),
+		help:              help.New(keys.FullHelp()),
+		containerSel:      containerpicker.New(),
+		searchQuery:       cfg.prefs.SearchQuery,
+		prefsPath:         cfg.prefsPath,
+		savedAllCollapsed: cfg.prefs.AllCollapsed,
+	}
+}
+
+// modelConfig holds optional configuration for NewModel.
+type modelConfig struct {
+	prefs     config.Preferences
+	prefsPath string
+}
+
+// ModelOption configures NewModel.
+type ModelOption func(*modelConfig)
+
+// WithPreferences sets the initial preferences to restore.
+func WithPreferences(prefs config.Preferences, path string) ModelOption {
+	return func(c *modelConfig) {
+		c.prefs = prefs
+		c.prefsPath = path
 	}
 }
 
@@ -231,6 +276,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return newModel, loadingTickCmd()
 		}
 		return m, nil
+
+	case PrefsSavedMsg:
+		return m, nil // silently ignore save results
 
 	case SearchDebouncedMsg:
 		return m.handleSearchDebounced(msg), nil
@@ -373,6 +421,14 @@ func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
 	newModel.err = nil
 	newModel.statusMsg = ""
 
+	// Apply saved collapse preference on first data load
+	if !newModel.initialCollapseApplied && newModel.savedAllCollapsed {
+		newModel.podList = newModel.podList.CollapseAll()
+		newModel.initialCollapseApplied = true
+	} else if !newModel.initialCollapseApplied {
+		newModel.initialCollapseApplied = true
+	}
+
 	// Use fetchID for owner resolution tracking (watchID is for watch events only)
 	resolveID := fetchSeq.Add(1)
 	newModel.fetchID = resolveID
@@ -413,6 +469,15 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) (Model, tea.Cmd) {
 	} else {
 		newModel.statusMsg = ""
 	}
+
+	// Apply saved collapse preference on first data load
+	if !newModel.initialCollapseApplied && newModel.savedAllCollapsed {
+		newModel.podList = newModel.podList.CollapseAll()
+		newModel.initialCollapseApplied = true
+	} else if !newModel.initialCollapseApplied {
+		newModel.initialCollapseApplied = true
+	}
+
 	return newModel, newModel.resolveOwnersCmd(allPods, msg.FetchID)
 }
 
@@ -667,7 +732,10 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		containerPickFor:  pickForShell,
 		width:             m.width,
 		height:           m.height,
-		metricsAvailable: m.metricsAvailable,
+		searchQuery:            m.searchQuery,
+		metricsAvailable:       m.metricsAvailable,
+		prefsPath:              m.prefsPath,
+		initialCollapseApplied: true, // don't re-apply collapse on namespace switch
 	}
-	return newModel, tea.Batch(newModel.startAndWatchCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
+	return newModel, tea.Batch(newModel.startAndWatchCmd(), newModel.fetchMetricsCmd(), loadingTickCmd(), newModel.savePrefsCmd())
 }

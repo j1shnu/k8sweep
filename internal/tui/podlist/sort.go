@@ -82,6 +82,38 @@ func SortColumnLabel(col SortColumn) string {
 	}
 }
 
+// ParseSortColumn converts a label string (e.g. "NAME", "STATUS") back to a SortColumn.
+// Returns SortByName for unrecognized labels.
+func ParseSortColumn(label string) SortColumn {
+	switch label {
+	case "NAME":
+		return SortByName
+	case "STATUS":
+		return SortByStatus
+	case "AGE":
+		return SortByAge
+	case "RESTARTS":
+		return SortByRestarts
+	case "OWNER":
+		return SortByOwner
+	case "CPU":
+		return SortByCPU
+	case "MEM":
+		return SortByMemory
+	default:
+		return SortByName
+	}
+}
+
+// ParseSortOrder converts a string ("asc" or "desc") back to a SortOrder.
+// Returns SortAsc for unrecognized values.
+func ParseSortOrder(s string) SortOrder {
+	if s == "desc" {
+		return SortDesc
+	}
+	return SortAsc
+}
+
 // SortIndicator returns ▲ for ascending or ▼ for descending.
 func SortIndicator(order SortOrder) string {
 	if order == SortAsc {
