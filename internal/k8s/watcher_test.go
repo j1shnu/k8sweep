@@ -8,8 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestPodWatcher_InitialList(t *testing.T) {
@@ -114,6 +117,26 @@ func TestPodWatcher_ListPods_FromCache(t *testing.T) {
 	pods := w.ListPods()
 	require.Len(t, pods, 1)
 	assert.Equal(t, "cached-pod", pods[0].Name)
+}
+
+func TestPodWatcher_AuthError_StopsWatcher(t *testing.T) {
+	cs := fake.NewClientset()
+	cs.PrependReactor("list", "pods", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, k8serrors.NewUnauthorized("credentials expired")
+	})
+
+	w := NewPodWatcher(cs, "default")
+	w.Start()
+
+	// The channel should close quickly — not dead-loop retrying forever.
+	select {
+	case _, ok := <-w.Events():
+		assert.False(t, ok, "expected channel to be closed on auth failure")
+	case <-time.After(5 * time.Second):
+		t.Fatal("watcher dead-looped on auth error — channel never closed")
+	}
+
+	require.Error(t, w.FatalErr())
 }
 
 func TestPodWatcher_StopIsIdempotent(t *testing.T) {

@@ -24,7 +24,7 @@ func (m Model) startAndWatchCmd() tea.Cmd {
 		watcher.Start()
 		pods, ok := <-watcher.Events()
 		if !ok {
-			return WatchStoppedMsg{WatchID: id}
+			return WatchStoppedMsg{WatchID: id, Err: watcher.FatalErr()}
 		}
 		return WatchPodsMsg{Pods: pods, WatchID: id}
 	}
@@ -35,12 +35,13 @@ func (m Model) watchPodsCmd() tea.Cmd {
 	if m.watcher == nil {
 		return nil
 	}
+	watcher := m.watcher
 	ch := m.watcher.Events()
 	id := m.watchID
 	return func() tea.Msg {
 		pods, ok := <-ch
 		if !ok {
-			return WatchStoppedMsg{WatchID: id}
+			return WatchStoppedMsg{WatchID: id, Err: watcher.FatalErr()}
 		}
 		return WatchPodsMsg{Pods: pods, WatchID: id}
 	}

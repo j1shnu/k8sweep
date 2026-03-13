@@ -6,6 +6,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -25,8 +26,9 @@ type PodWatcher struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
-	mu   sync.RWMutex
-	pods map[string]*corev1.Pod // keyed by namespace/name
+	mu       sync.RWMutex
+	pods     map[string]*corev1.Pod // keyed by namespace/name
+	fatalErr error                  // set when a non-retriable error occurs (e.g. auth failure)
 }
 
 // NewPodWatcher creates a watcher for the given namespace.
@@ -88,8 +90,23 @@ func podCacheKey(pod *corev1.Pod) string {
 	return pod.Namespace + "/" + pod.Name
 }
 
+// FatalErr returns the non-retriable error that caused the watcher to stop,
+// or nil if the watcher stopped normally.
+func (w *PodWatcher) FatalErr() error {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.fatalErr
+}
+
+// isNonRetriableErr returns true for errors that will never succeed on retry,
+// such as authentication (401) or authorization (403) failures.
+func isNonRetriableErr(err error) bool {
+	return k8serrors.IsUnauthorized(err) || k8serrors.IsForbidden(err)
+}
+
 // listWatchLoop performs an initial list, then watches for changes.
 // On watch errors, it re-lists and re-watches.
+// On non-retriable errors (auth failures), it stops immediately.
 func (w *PodWatcher) listWatchLoop() {
 	for {
 		select {
@@ -100,6 +117,13 @@ func (w *PodWatcher) listWatchLoop() {
 
 		resourceVersion, err := w.listPods()
 		if err != nil {
+			if isNonRetriableErr(err) {
+				w.mu.Lock()
+				w.fatalErr = err
+				w.mu.Unlock()
+				w.Stop()
+				return
+			}
 			select {
 			case <-w.stopCh:
 				return
