@@ -65,7 +65,7 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		} else {
 			newModel.podList = m.podList.ExpandAll()
 		}
-		return newModel, nil
+		return newModel, newModel.savePrefsCmd()
 	case key.Matches(msg, m.keys.SelectAll):
 		newModel := m
 		if m.podList.SelectedCount() == m.podList.PodCount() {
@@ -167,7 +167,7 @@ func (m Model) handleSortKey() (Model, tea.Cmd) {
 	newModel := m
 	newModel.podList = m.podList.SetSort(col, order)
 	newModel.statusMsg = "Sort: " + podlist.SortColumnLabel(col) + " " + podlist.SortIndicator(order)
-	return newModel, nil
+	return newModel, newModel.savePrefsCmd()
 }
 
 func (m Model) handleFilterKey() (Model, tea.Cmd) {
@@ -188,12 +188,12 @@ func (m Model) handleFilterKey() (Model, tea.Cmd) {
 		}
 		newModel.header = m.header.SetFilter(newFilter, buildPodCountLabel(newFilter, len(displayPods), len(m.allPods))).
 			SetStatusSummary(buildStatusSummary(m.allPods))
-		return newModel, nil
+		return newModel, newModel.savePrefsCmd()
 	}
 	newModel.podList = m.podList.SetLoading()
 	newModel.header = m.header.SetFilter(newFilter, "").
 		SetStatusSummary(header.StatusSummary{})
-	return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
+	return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd(), newModel.savePrefsCmd())
 }
 
 func (m Model) handleControllerFilterKey() (Model, tea.Cmd) {
@@ -210,7 +210,7 @@ func (m Model) handleControllerFilterKey() (Model, tea.Cmd) {
 		newModel.podList = m.podList.SetItemsSorted(displayPods).GoTop()
 		newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
 			SetStatusSummary(buildStatusSummary(m.allPods))
-		return newModel, nil
+		return newModel, newModel.savePrefsCmd()
 	}
 	return newModel, nil
 }

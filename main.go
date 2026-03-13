@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jprasad/k8sweep/internal/app"
+	"github.com/jprasad/k8sweep/internal/config"
 	"github.com/jprasad/k8sweep/internal/k8s"
 )
 
@@ -46,18 +47,41 @@ func main() {
 
 	k8s.SuppressBenignRuntimeErrors()
 
+	// Load saved preferences
+	prefsPath := config.DefaultPath()
+	prefs := config.Load(prefsPath)
+
+	// Apply saved namespace/all-namespaces only when no CLI flag overrides it.
+	nsOverride := *namespace
+	allNS := *allNamespaces
+	if nsOverride == "" && !allNS && prefs.Namespace != "" {
+		nsExplicit := false
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == "namespace" || f.Name == "n" || f.Name == "all-namespaces" || f.Name == "A" {
+				nsExplicit = true
+			}
+		})
+		if !nsExplicit {
+			if prefs.Namespace == config.AllNamespacesSentinel {
+				allNS = true
+			} else {
+				nsOverride = prefs.Namespace
+			}
+		}
+	}
+
 	client, err := k8s.NewClient(k8s.ClientConfig{
 		KubeconfigPath:    *kubeconfig,
 		ContextOverride:   *context,
-		NamespaceOverride: *namespace,
-		AllNamespaces:     *allNamespaces,
+		NamespaceOverride: nsOverride,
+		AllNamespaces:     allNS,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	model := app.NewModel(client)
+	model := app.NewModel(client, app.WithPreferences(prefs, prefsPath))
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {

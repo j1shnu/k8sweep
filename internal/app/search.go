@@ -40,7 +40,7 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		} else {
 			newModel.statusMsg = ""
 		}
-		return newModel, nil
+		return newModel, newModel.savePrefsCmd()
 
 	case "esc":
 		newModel := m
@@ -55,7 +55,7 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				SetStatusSummary(buildStatusSummary(m.allPods))
 		}
 		newModel.statusMsg = ""
-		return newModel, nil
+		return newModel, newModel.savePrefsCmd()
 	}
 
 	// Pass to textinput

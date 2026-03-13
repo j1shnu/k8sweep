@@ -95,3 +95,9 @@ type OwnerResolvedMsg struct {
 	Pods    []k8s.PodInfo
 	FetchID uint64 // matches fetchID or watchID to discard stale results
 }
+
+// PrefsSavedMsg is sent after preferences have been written to disk.
+// Err is non-nil if the save failed (silently ignored by the UI).
+type PrefsSavedMsg struct {
+	Err error
+}

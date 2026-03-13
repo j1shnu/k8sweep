@@ -5,7 +5,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jprasad/k8sweep/internal/config"
 	"github.com/jprasad/k8sweep/internal/k8s"
+	"github.com/jprasad/k8sweep/internal/tui/podlist"
 )
 
 const loadingTickInterval = 80 * time.Millisecond
@@ -189,4 +191,34 @@ func searchDebounceCmd(seq uint64, query string) tea.Cmd {
 	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
 		return SearchDebouncedMsg{Seq: seq, Query: query}
 	})
+}
+
+// savePrefsCmd saves the current UI preferences to disk asynchronously.
+func (m Model) savePrefsCmd() tea.Cmd {
+	if m.prefsPath == "" {
+		return nil
+	}
+	ns := m.namespace
+	if ns == k8s.AllNamespaces {
+		ns = config.AllNamespacesSentinel
+	}
+	prefs := config.Preferences{
+		SortColumn:   podlist.SortColumnLabel(m.podList.SortColumn()),
+		SortOrder:    sortOrderString(m.podList.SortOrder()),
+		DirtyFilter:  m.filter.ShowDirtyOnly,
+		Namespace:    ns,
+		AllCollapsed: !m.podList.AnyExpanded(),
+		SearchQuery:  m.searchQuery,
+	}
+	path := m.prefsPath
+	return func() tea.Msg {
+		return PrefsSavedMsg{Err: config.Save(path, prefs)}
+	}
+}
+
+func sortOrderString(o podlist.SortOrder) string {
+	if o == podlist.SortDesc {
+		return "desc"
+	}
+	return "asc"
 }
