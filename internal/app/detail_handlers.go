@@ -36,9 +36,20 @@ func (m Model) handlePodDetailLoaded(msg PodDetailLoadedMsg) Model {
 		newModel.detailStatus = ""
 		newModel.podDetail = m.podDetail.SetError(msg.Err.Error())
 	} else {
-		newModel.detailData = msg.Detail
+		// Enrich detail with resolved controller from allPods cache
+		detail := msg.Detail
+		for _, p := range m.allPods {
+			if p.Namespace == detail.Namespace && p.Name == detail.Name {
+				ref := p.Controller.String()
+				if ref != "" && ref != detail.Owner {
+					detail.ResolvedController = ref
+				}
+				break
+			}
+		}
+		newModel.detailData = detail
 		newModel.detailStatus = ""
-		newModel.podDetail = m.podDetail.SetDetail(msg.Detail)
+		newModel.podDetail = m.podDetail.SetDetail(detail)
 	}
 	return newModel
 }

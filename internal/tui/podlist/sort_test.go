@@ -134,6 +134,8 @@ func TestNextSortColumn_WithMetrics(t *testing.T) {
 	assert.Equal(t, SortByAge, col)
 	col = NextSortColumn(col, true) // → Restarts
 	assert.Equal(t, SortByRestarts, col)
+	col = NextSortColumn(col, true) // → Owner
+	assert.Equal(t, SortByOwner, col)
 	col = NextSortColumn(col, true) // → CPU
 	assert.Equal(t, SortByCPU, col)
 	col = NextSortColumn(col, true) // → Memory
@@ -150,6 +152,8 @@ func TestNextSortColumn_WithoutMetrics(t *testing.T) {
 	assert.Equal(t, SortByAge, col)
 	col = NextSortColumn(col, false)
 	assert.Equal(t, SortByRestarts, col)
+	col = NextSortColumn(col, false) // → Owner
+	assert.Equal(t, SortByOwner, col)
 	col = NextSortColumn(col, false) // wraps to Name, skipping CPU/Mem
 	assert.Equal(t, SortByName, col)
 }
@@ -159,6 +163,7 @@ func TestSortColumnLabel(t *testing.T) {
 	assert.Equal(t, "STATUS", SortColumnLabel(SortByStatus))
 	assert.Equal(t, "AGE", SortColumnLabel(SortByAge))
 	assert.Equal(t, "RESTARTS", SortColumnLabel(SortByRestarts))
+	assert.Equal(t, "OWNER", SortColumnLabel(SortByOwner))
 	assert.Equal(t, "CPU", SortColumnLabel(SortByCPU))
 	assert.Equal(t, "MEM", SortColumnLabel(SortByMemory))
 }

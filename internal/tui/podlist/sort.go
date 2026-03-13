@@ -15,6 +15,7 @@ const (
 	SortByStatus
 	SortByAge
 	SortByRestarts
+	SortByOwner
 	SortByCPU
 	SortByMemory
 )
@@ -28,10 +29,10 @@ const (
 )
 
 // sortColumnCount is the total number of sort columns (used for cycling).
-const sortColumnCount = 6
+const sortColumnCount = 7
 
 // sortColumnCountNoMetrics is the count when metrics are unavailable.
-const sortColumnCountNoMetrics = 4
+const sortColumnCountNoMetrics = 5
 
 // statusSeverity maps pod statuses to a severity rank for sorting.
 // Lower values = healthier; higher values = more problematic (sorted first in desc).
@@ -70,6 +71,8 @@ func SortColumnLabel(col SortColumn) string {
 		return "AGE"
 	case SortByRestarts:
 		return "RESTARTS"
+	case SortByOwner:
+		return "OWNER"
 	case SortByCPU:
 		return "CPU"
 	case SortByMemory:
@@ -127,6 +130,15 @@ func sortPods(pods []k8s.PodInfo, col SortColumn, order SortOrder) []k8s.PodInfo
 				return a.RestartCount > b.RestartCount
 			}
 			return a.RestartCount < b.RestartCount
+
+		case SortByOwner:
+			aKey := string(a.Controller.Kind) + "/" + a.Controller.Name
+			bKey := string(b.Controller.Kind) + "/" + b.Controller.Name
+			cmp := strings.Compare(aKey, bKey)
+			if order == SortDesc {
+				return cmp > 0
+			}
+			return cmp < 0
 
 		case SortByCPU:
 			aNil := a.Metrics == nil

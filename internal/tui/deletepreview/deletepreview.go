@@ -116,11 +116,12 @@ func (m Model) View() string {
 
 	// Column headers
 	nsCol := 20
-	nameCol := 35
+	nameCol := 30
 	statusCol := 18
-	ageCol := 8
-	headerLine := fmt.Sprintf("  %-*s %-*s %-*s %-*s",
-		nsCol, "NAMESPACE", nameCol, "NAME", statusCol, "STATUS", ageCol, "AGE")
+	ageCol := 6
+	ownerCol := 22
+	headerLine := fmt.Sprintf("  %-*s %-*s %-*s %-*s %-*s",
+		nsCol, "NAMESPACE", nameCol, "NAME", statusCol, "STATUS", ageCol, "AGE", ownerCol, "OWNER")
 	b.WriteString(styles.FooterHelp.Render(headerLine))
 	b.WriteString("\n")
 
@@ -138,16 +139,19 @@ func (m Model) View() string {
 		name := truncate(p.Name, nameCol)
 		status := string(p.Status)
 		age := podlist.FormatAge(p.Age)
+		owner := formatOwner(p.Controller, ownerCol)
 
 		styledStatus := styles.StyleForStatus(status).Render(fmt.Sprintf("%-*s", statusCol, truncate(status, statusCol)))
-		row := fmt.Sprintf("  %-*s %-*s %s %-*s", nsCol, ns, nameCol, name, styledStatus, ageCol, age)
+		row := fmt.Sprintf("  %-*s %-*s %s %-*s %-*s", nsCol, ns, nameCol, name, styledStatus, ageCol, age, ownerCol, owner)
 		b.WriteString(row)
 		b.WriteString("\n")
 	}
 
 	// Scroll indicator
 	if len(m.pods) > visibleRows {
-		shown := fmt.Sprintf("  showing %d-%d of %d (j/k to scroll)", start+1, end, len(m.pods))
+		shown := fmt.Sprintf("  showing %d-%d of %d (%s/%s to scroll)",
+			start+1, end, len(m.pods),
+			styles.LabelText.Render("j"), styles.LabelText.Render("k"))
 		b.WriteString(styles.FooterHelp.Render(shown))
 		b.WriteString("\n")
 	}
@@ -174,7 +178,11 @@ func (m Model) View() string {
 	}
 	fmt.Fprintf(&b, "    %s    %s", yes, no)
 	b.WriteString("\n")
-	b.WriteString(styles.FooterHelp.Render("  [y] confirm  [n/esc] cancel  [←/→] toggle"))
+	hint := fmt.Sprintf("  %s confirm  %s cancel  %s toggle",
+		styles.LabelText.Render("[y]"),
+		styles.LabelText.Render("[n/esc]"),
+		styles.LabelText.Render("[←/→]"))
+	b.WriteString(styles.FooterHelp.Render(hint))
 
 	boxStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
@@ -224,6 +232,29 @@ func clampScroll(scroll, max int) int {
 		return max
 	}
 	return scroll
+}
+
+// shortKindNames maps controller kinds to compact display prefixes.
+var shortKindNames = map[k8s.ControllerKind]string{
+	k8s.ControllerDeployment:  "Deploy",
+	k8s.ControllerStatefulSet: "STS",
+	k8s.ControllerDaemonSet:   "DS",
+	k8s.ControllerJob:         "Job",
+	k8s.ControllerCronJob:     "CronJob",
+	k8s.ControllerReplicaSet:  "RS",
+}
+
+// formatOwner returns a compact owner string like "Deploy/nginx" or "Standalone".
+func formatOwner(ref k8s.ControllerRef, maxWidth int) string {
+	if ref.Kind == k8s.ControllerStandalone || ref.Kind == "" {
+		return "Standalone"
+	}
+	prefix := string(ref.Kind)
+	if s, ok := shortKindNames[ref.Kind]; ok {
+		prefix = s
+	}
+	full := prefix + "/" + ref.Name
+	return truncate(full, maxWidth)
 }
 
 func truncate(s string, max int) string {

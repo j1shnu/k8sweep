@@ -183,7 +183,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case PodsLoadedMsg:
-		return m.handlePodsLoaded(msg), nil
+		return m.handlePodsLoaded(msg)
+
+	case OwnerResolvedMsg:
+		return m.handleOwnerResolved(msg), nil
 
 	case MetricsProbedMsg:
 		return m.handleMetricsProbed(msg)
@@ -310,12 +313,15 @@ func (m Model) View() string {
 		if m.err != nil {
 			status = "\n Error: " + m.err.Error()
 		}
-		searchHint := ""
+		filterHints := ""
+		if m.filter.ControllerKindFilter != "" {
+			filterHints += "\n " + styles.FilterBadge.Render(" CTRL ") + " " + string(m.filter.ControllerKindFilter)
+		}
 		if m.searchQuery != "" {
-			searchHint = "\n " + styles.FilterBadge.Render(" SEARCH ") + " " + m.searchQuery
+			filterHints += "\n " + styles.FilterBadge.Render(" SEARCH ") + " " + m.searchQuery
 		}
 		return m.header.View() + "\n" +
-			m.podList.View() + searchHint + status + "\n" +
+			m.podList.View() + filterHints + status + "\n" +
 			m.footer.View() + "\n"
 	}
 }
@@ -361,18 +367,21 @@ func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
 	newModel.err = nil
 	newModel.statusMsg = ""
 
-	return newModel, m.watchPodsCmd()
+	// Use fetchID for owner resolution tracking (watchID is for watch events only)
+	resolveID := fetchSeq.Add(1)
+	newModel.fetchID = resolveID
+	return newModel, tea.Batch(m.watchPodsCmd(), newModel.resolveOwnersCmd(allPods, resolveID))
 }
 
-func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
+func (m Model) handlePodsLoaded(msg PodsLoadedMsg) (Model, tea.Cmd) {
 	// Discard stale responses from a previous fetch
 	if msg.FetchID != m.fetchID {
-		return m
+		return m, nil
 	}
 	if msg.Err != nil && len(msg.Pods) == 0 {
 		newModel := m
 		newModel.err = msg.Err
-		return newModel
+		return newModel, nil
 	}
 	allPods := msg.Pods
 
@@ -398,6 +407,28 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) Model {
 	} else {
 		newModel.statusMsg = ""
 	}
+	return newModel, newModel.resolveOwnersCmd(allPods, msg.FetchID)
+}
+
+func (m Model) handleOwnerResolved(msg OwnerResolvedMsg) Model {
+	// Discard stale resolution results
+	if msg.FetchID != m.fetchID {
+		return m
+	}
+
+	allPods := msg.Pods
+	if m.lastMetrics != nil {
+		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
+	}
+
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+
+	newModel := m
+	newModel.allPods = allPods
+	newModel.podList = m.podList.SetItemsSorted(displayPods)
+	newModel.totalPodCount = len(allPods)
+	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
+		SetStatusSummary(buildStatusSummary(allPods))
 	return newModel
 }
 
@@ -543,172 +574,6 @@ func (m Model) handleHelpKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, m.keys.Help):
-		newModel := m
-		newModel.state = stateHelp
-		newModel.help = m.help.SetSize(m.width, m.height-common.HeaderHeight-common.FooterHeight-1)
-		return newModel, nil
-	case key.Matches(msg, m.keys.Up):
-		newModel := m
-		newModel.podList = m.podList.MoveUp()
-		newModel.pendingG = false
-		return newModel, nil
-	case key.Matches(msg, m.keys.Down):
-		newModel := m
-		newModel.podList = m.podList.MoveDown()
-		newModel.pendingG = false
-		return newModel, nil
-	case key.Matches(msg, m.keys.PageUp):
-		newModel := m
-		newModel.podList = m.podList.PageUp()
-		newModel.pendingG = false
-		return newModel, nil
-	case key.Matches(msg, m.keys.PageDown):
-		newModel := m
-		newModel.podList = m.podList.PageDown()
-		newModel.pendingG = false
-		return newModel, nil
-	case key.Matches(msg, m.keys.GoBottom):
-		newModel := m
-		newModel.podList = m.podList.GoBottom()
-		newModel.pendingG = false
-		return newModel, nil
-	case msg.String() == "g":
-		if m.pendingG && time.Since(m.pendingGTime) < 500*time.Millisecond {
-			newModel := m
-			newModel.podList = m.podList.GoTop()
-			newModel.pendingG = false
-			return newModel, nil
-		}
-		newModel := m
-		newModel.pendingG = true
-		newModel.pendingGTime = time.Now()
-		return newModel, nil
-	case key.Matches(msg, m.keys.Select):
-		newModel := m
-		newModel.podList = m.podList.ToggleSelect()
-		return newModel, nil
-	case key.Matches(msg, m.keys.SelectAll):
-		newModel := m
-		if m.podList.SelectedCount() == m.podList.Len() {
-			newModel.podList = m.podList.DeselectAll()
-		} else {
-			newModel.podList = m.podList.SelectAll()
-		}
-		return newModel, nil
-	case key.Matches(msg, m.keys.Delete):
-		return m.enterDeletePreview(common.DeleteNormal)
-	case key.Matches(msg, m.keys.ForceDelete):
-		return m.enterDeletePreview(common.DeleteForce)
-	case key.Matches(msg, m.keys.Namespace):
-		newModel := m
-		newModel.nsLoading = true
-		newModel.nsSpinnerFrame = 0
-		newModel.statusMsg = ""
-		return newModel, tea.Batch(newModel.fetchNamespacesCmd(), loadingTickCmd())
-	case key.Matches(msg, m.keys.Refresh):
-		newModel := m
-		if m.watcher != nil {
-			// Read from watcher cache for instant refresh
-			pods := m.watcher.ListPods()
-			allPods := pods
-			if m.lastMetrics != nil {
-				allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
-			}
-			displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
-			newModel.allPods = allPods
-			newModel.totalPodCount = len(allPods)
-			newModel.podList = m.podList.SetItemsSorted(displayPods)
-			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
-				SetStatusSummary(buildStatusSummary(allPods))
-			newModel.statusMsg = "Refreshed"
-			return newModel, m.fetchMetricsCmd()
-		}
-		newModel.podList = m.podList.SetLoading()
-		newModel.statusMsg = "Refreshing..."
-		return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
-	case key.Matches(msg, m.keys.Info):
-		pod := m.podList.CursorItem()
-		if pod == nil {
-			return m, nil
-		}
-		newModel := m
-		newModel.state = stateViewingDetail
-		newModel.detailPodKey = pod.Namespace + "/" + pod.Name
-		newModel.detailData = nil
-		newModel.detailStatus = ""
-		newModel.podDetail = m.podDetail.SetSize(m.width, m.height-common.HeaderHeight-1).SetLoading()
-		return newModel, newModel.fetchPodDetailCmd(pod.Namespace, pod.Name)
-	case key.Matches(msg, m.keys.Sort):
-		col := m.podList.SortColumn()
-		order := m.podList.SortOrder()
-		if order == podlist.SortAsc {
-			// First press on this column was asc → flip to desc
-			order = podlist.SortDesc
-		} else {
-			// Already desc → cycle to next column, reset to asc
-			col = podlist.NextSortColumn(col, m.podList.MetricsAvailable())
-			order = podlist.SortAsc
-		}
-		newModel := m
-		newModel.podList = m.podList.SetSort(col, order)
-		newModel.statusMsg = "Sort: " + podlist.SortColumnLabel(col) + " " + podlist.SortIndicator(order)
-		return newModel, nil
-	case key.Matches(msg, m.keys.Search):
-		return m.enterSearchMode()
-	case key.Matches(msg, m.keys.Filter):
-		newFilter := !m.filter.ShowDirtyOnly
-		newModel := m
-		newModel.filter = k8s.ResourceFilter{ShowDirtyOnly: newFilter}
-		if newFilter {
-			newModel.statusMsg = "Filter: showing dirty pods only"
-		} else {
-			newModel.statusMsg = "Filter: showing all pods"
-		}
-		if m.allPods != nil {
-			displayPods := applyFilters(m.allPods, newModel.filter, m.activeSearchQuery())
-			newModel.podList = m.podList.SetItemsSorted(displayPods)
-			// Turning filter OFF should reset pagination/cursor to page 1.
-			if !newFilter {
-				newModel.podList = newModel.podList.GoTop()
-			}
-			newModel.header = m.header.SetFilter(newFilter, buildPodCountLabel(newFilter, len(displayPods), len(m.allPods))).
-				SetStatusSummary(buildStatusSummary(m.allPods))
-			return newModel, nil
-		}
-		newModel.podList = m.podList.SetLoading()
-		newModel.header = m.header.SetFilter(newFilter, "").
-			SetStatusSummary(header.StatusSummary{})
-		return newModel, tea.Batch(newModel.fetchPodsCmd(), newModel.fetchMetricsCmd(), loadingTickCmd())
-	}
-	return m, nil
-}
-
-// enterDeletePreview enters the delete preview screen.
-func (m Model) enterDeletePreview(action common.DeleteAction) (Model, tea.Cmd) {
-	selected := m.podList.GetSelected()
-	if len(selected) == 0 {
-		newModel := m
-		newModel.statusMsg = "No pods selected"
-		return newModel, nil
-	}
-
-	var warnings []string
-	for _, p := range selected {
-		if p.OwnerRef == "" {
-			warnings = append(warnings, p.Name+" is standalone (no controller — delete is permanent)")
-		}
-	}
-
-	newModel := m
-	newModel.deletePreview = deletepreview.New(selected, action, warnings).
-		SetSize(m.width, m.height-common.HeaderHeight-1)
-	newModel.state = stateDeletePreview
-	return newModel, nil
-}
-
 func (m Model) handleDeletePreviewKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	newPreview, cmd := m.deletePreview.Update(msg)
 	newModel := m
@@ -773,11 +638,13 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 	newWatcher := k8s.NewPodWatcher(m.client.Clientset(), ns)
 	newWatchID := m.watchID + 1
 
+	// Reset controller filter on namespace switch
+	newFilter := k8s.ResourceFilter{ShowDirtyOnly: m.filter.ShowDirtyOnly}
 	newModel := Model{
 		client:           m.client,
 		keys:             m.keys,
 		state:            stateBrowsing,
-		filter:           m.filter,
+		filter:           newFilter,
 		namespace:        ns,
 		watcher:          newWatcher,
 		watchID:          newWatchID,

@@ -1,13 +1,9 @@
 package podlist
 
 import (
-	"fmt"
 	"math/rand"
-	"strings"
-	"time"
 
 	"github.com/jprasad/k8sweep/internal/k8s"
-	"github.com/jprasad/k8sweep/internal/tui/styles"
 )
 
 // spinnerFrames are the animation frames for the loading spinner.
@@ -45,9 +41,11 @@ func randomFactIndex() int {
 // At 80ms per tick, 125 ticks = 10 seconds per fact.
 const factRotateInterval = 125
 
-// Model represents the interactive pod list component.
+// Model represents the interactive pod list component with tree grouping.
 type Model struct {
 	items            []k8s.PodInfo
+	displayRows      []DisplayRow
+	collapsed        map[string]struct{}
 	cursor           int
 	selected         map[string]struct{} // key: "namespace/name"
 	width            int
@@ -67,13 +65,19 @@ type Model struct {
 func New() Model {
 	return Model{
 		selected:  make(map[string]struct{}),
+		collapsed: make(map[string]struct{}),
 		loading:   true,
 		factIndex: randomFactIndex(),
 	}
 }
 
-// Len returns the number of items in the list.
+// Len returns the number of display rows (for pagination).
 func (m Model) Len() int {
+	return len(m.displayRows)
+}
+
+// PodCount returns the number of pods (for header/selection checks).
+func (m Model) PodCount() int {
 	return len(m.items)
 }
 
@@ -86,6 +90,8 @@ func (m Model) IsLoading() bool {
 func (m Model) SetLoading() Model {
 	return Model{
 		items:            m.items,
+		displayRows:      m.displayRows,
+		collapsed:        m.collapsed,
 		cursor:           m.cursor,
 		selected:         m.selected,
 		width:            m.width,
@@ -131,11 +137,19 @@ func (m Model) SetMetricsAvailable(available bool) Model {
 	return newModel
 }
 
-// SetItems returns a new model with the given pods, resetting cursor and selection.
+// SetItems returns a new model with the given pods, resetting cursor, selection,
+// and collapse state.
 func (m Model) SetItems(pods []k8s.PodInfo) Model {
+	collapsed := make(map[string]struct{})
+	groups := GroupPodsByController(pods, m.sortColumn, m.sortOrder)
+	displayRows := BuildDisplayRows(groups, collapsed)
+	cursor := firstPodRowIndex(displayRows)
+
 	return Model{
 		items:            pods,
-		cursor:           0,
+		displayRows:      displayRows,
+		collapsed:        collapsed,
+		cursor:           cursor,
 		selected:         make(map[string]struct{}),
 		width:            m.width,
 		height:           m.height,
@@ -148,44 +162,33 @@ func (m Model) SetItems(pods []k8s.PodInfo) Model {
 	}
 }
 
-// SetItemsSorted returns a new model with pods sorted by the current sort column,
-// resetting cursor and selection (same as SetItems but applies current sort).
+// SetItemsSorted returns a new model with updated pods, preserving cursor position,
+// collapse state, and selection (pruned). Collapse state is carried forward without
+// pruning — stale keys for absent groups are harmless no-ops in BuildDisplayRows,
+// and this ensures collapse state survives filter toggles where groups are temporarily
+// hidden. Real cleanup happens in SetItems (namespace switch), which resets to empty.
 func (m Model) SetItemsSorted(pods []k8s.PodInfo) Model {
-	sorted := sortPods(pods, m.sortColumn, m.sortOrder)
+	podTarget, groupTarget := m.cursorTarget()
 
-	// Track the pod under cursor so we can follow it after re-sort
-	var cursorKey string
-	if len(m.items) > 0 && m.cursor < len(m.items) {
-		cursorKey = podKey(m.items[m.cursor])
+	groups := GroupPodsByController(pods, m.sortColumn, m.sortOrder)
+	displayRows := BuildDisplayRows(groups, m.collapsed)
+
+	newCursor := findRowIndex(displayRows, podTarget, groupTarget)
+	if podTarget == "" && groupTarget == "" {
+		newCursor = firstPodRowIndex(displayRows)
+	}
+	ps := m.pageSize()
+	newOffset := 0
+	if ps > 0 {
+		newOffset = (newCursor / ps) * ps
 	}
 
-	newCursor := 0
-	for i, p := range sorted {
-		if podKey(p) == cursorKey {
-			newCursor = i
-			break
-		}
-	}
-
-	newOffset := m.pageStartForCursor(newCursor)
-
-	// Prune selection to only pods still present
-	newSelected := make(map[string]struct{})
-	if len(m.selected) > 0 {
-		newSelected = make(map[string]struct{}, len(m.selected))
-		presentKeys := make(map[string]struct{}, len(sorted))
-		for _, p := range sorted {
-			presentKeys[podKey(p)] = struct{}{}
-		}
-		for k := range m.selected {
-			if _, ok := presentKeys[k]; ok {
-				newSelected[k] = struct{}{}
-			}
-		}
-	}
+	newSelected := pruneSelected(m.selected, pods)
 
 	return Model{
-		items:            sorted,
+		items:            pods,
+		displayRows:      displayRows,
+		collapsed:        m.collapsed,
 		cursor:           newCursor,
 		selected:         newSelected,
 		width:            m.width,
@@ -202,27 +205,25 @@ func (m Model) SetItemsSorted(pods []k8s.PodInfo) Model {
 // SetSort applies a new sort column and order. Preserves cursor position by tracking
 // the pod key at the current cursor. Selection is preserved.
 func (m Model) SetSort(col SortColumn, order SortOrder) Model {
-	// Track the pod under cursor so we can follow it after sort
-	var cursorKey string
-	if len(m.items) > 0 && m.cursor < len(m.items) {
-		cursorKey = podKey(m.items[m.cursor])
+	podTarget, groupTarget := m.cursorTarget()
+
+	groups := GroupPodsByController(m.items, col, order)
+	displayRows := BuildDisplayRows(groups, m.collapsed)
+
+	newCursor := findRowIndex(displayRows, podTarget, groupTarget)
+	if podTarget == "" && groupTarget == "" {
+		newCursor = firstPodRowIndex(displayRows)
 	}
-
-	sorted := sortPods(m.items, col, order)
-
-	// Find the tracked pod in the new order
-	newCursor := 0
-	for i, p := range sorted {
-		if podKey(p) == cursorKey {
-			newCursor = i
-			break
-		}
+	ps := m.pageSize()
+	newOffset := 0
+	if ps > 0 {
+		newOffset = (newCursor / ps) * ps
 	}
-
-	newOffset := m.pageStartForCursor(newCursor)
 
 	return Model{
-		items:            sorted,
+		items:            m.items,
+		displayRows:      displayRows,
+		collapsed:        m.collapsed,
 		cursor:           newCursor,
 		selected:         m.selected,
 		width:            m.width,
@@ -253,19 +254,35 @@ func (m Model) MetricsAvailable() bool {
 	return m.metricsAvailable
 }
 
-// CursorItem returns the pod at the current cursor position, or nil if empty.
+// CursorItem returns the pod at the current cursor position, or nil if cursor
+// is on a controller row or the list is empty.
 func (m Model) CursorItem() *k8s.PodInfo {
-	if len(m.items) == 0 || m.cursor >= len(m.items) {
+	if len(m.displayRows) == 0 || m.cursor >= len(m.displayRows) {
 		return nil
 	}
-	p := m.items[m.cursor]
-	return &p
+	row := m.displayRows[m.cursor]
+	if row.Kind == RowPod && row.Pod != nil {
+		p := *row.Pod
+		return &p
+	}
+	return nil
+}
+
+// CursorRow returns the display row at the current cursor position.
+func (m Model) CursorRow() *DisplayRow {
+	if len(m.displayRows) == 0 || m.cursor >= len(m.displayRows) {
+		return nil
+	}
+	r := m.displayRows[m.cursor]
+	return &r
 }
 
 // SetSize returns a new model with the updated dimensions.
 func (m Model) SetSize(width, height int) Model {
 	return Model{
 		items:            m.items,
+		displayRows:      m.displayRows,
+		collapsed:        m.collapsed,
 		cursor:           m.cursor,
 		selected:         m.selected,
 		width:            width,
@@ -285,23 +302,50 @@ func podKey(p k8s.PodInfo) string {
 	return p.Namespace + "/" + p.Name
 }
 
-// ToggleSelect toggles selection of the pod at the current cursor.
+// ToggleSelect toggles selection. On a controller row, toggles all pods in the
+// group. On a pod row, toggles that single pod.
 func (m Model) ToggleSelect() Model {
-	if len(m.items) == 0 {
+	if len(m.displayRows) == 0 || m.cursor >= len(m.displayRows) {
 		return m
 	}
+	row := m.displayRows[m.cursor]
+
 	newSelected := make(map[string]struct{}, len(m.selected))
 	for k, v := range m.selected {
 		newSelected[k] = v
 	}
-	key := podKey(m.items[m.cursor])
-	if _, ok := newSelected[key]; ok {
-		delete(newSelected, key)
-	} else {
-		newSelected[key] = struct{}{}
+
+	if row.Kind == RowController && row.Header != nil {
+		// Toggle all pods in this group
+		allSelected := true
+		for _, p := range row.Header.Pods {
+			if _, ok := newSelected[podKey(p)]; !ok {
+				allSelected = false
+				break
+			}
+		}
+		if allSelected {
+			for _, p := range row.Header.Pods {
+				delete(newSelected, podKey(p))
+			}
+		} else {
+			for _, p := range row.Header.Pods {
+				newSelected[podKey(p)] = struct{}{}
+			}
+		}
+	} else if row.Kind == RowPod && row.Pod != nil {
+		key := podKey(*row.Pod)
+		if _, ok := newSelected[key]; ok {
+			delete(newSelected, key)
+		} else {
+			newSelected[key] = struct{}{}
+		}
 	}
+
 	return Model{
 		items:            m.items,
+		displayRows:      m.displayRows,
+		collapsed:        m.collapsed,
 		cursor:           m.cursor,
 		selected:         newSelected,
 		width:            m.width,
@@ -325,6 +369,8 @@ func (m Model) SelectAll() Model {
 	}
 	return Model{
 		items:            m.items,
+		displayRows:      m.displayRows,
+		collapsed:        m.collapsed,
 		cursor:           m.cursor,
 		selected:         newSelected,
 		width:            m.width,
@@ -344,6 +390,8 @@ func (m Model) SelectAll() Model {
 func (m Model) DeselectAll() Model {
 	return Model{
 		items:            m.items,
+		displayRows:      m.displayRows,
+		collapsed:        m.collapsed,
 		cursor:           m.cursor,
 		selected:         make(map[string]struct{}),
 		width:            m.width,
@@ -359,9 +407,147 @@ func (m Model) DeselectAll() Model {
 	}
 }
 
+// ToggleCollapse toggles expand/collapse of the controller group at cursor.
+// No-op if cursor is not on a controller row.
+func (m Model) ToggleCollapse() Model {
+	if len(m.displayRows) == 0 || m.cursor >= len(m.displayRows) {
+		return m
+	}
+	row := m.displayRows[m.cursor]
+	if row.Kind != RowController {
+		return m
+	}
+
+	newCollapsed := make(map[string]struct{}, len(m.collapsed))
+	for k, v := range m.collapsed {
+		newCollapsed[k] = v
+	}
+	if _, ok := newCollapsed[row.GroupKey]; ok {
+		delete(newCollapsed, row.GroupKey)
+	} else {
+		newCollapsed[row.GroupKey] = struct{}{}
+	}
+
+	groups := GroupPodsByController(m.items, m.sortColumn, m.sortOrder)
+	displayRows := BuildDisplayRows(groups, newCollapsed)
+
+	// Keep cursor at the same controller row
+	newCursor := findRowIndex(displayRows, "", row.GroupKey)
+	ps := m.pageSize()
+	newOffset := 0
+	if ps > 0 {
+		newOffset = (newCursor / ps) * ps
+	}
+
+	return Model{
+		items:            m.items,
+		displayRows:      displayRows,
+		collapsed:        newCollapsed,
+		cursor:           newCursor,
+		selected:         m.selected,
+		width:            m.width,
+		height:           m.height,
+		offset:           newOffset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
+	}
+}
+
+// CollapseAll collapses all controller groups.
+func (m Model) CollapseAll() Model {
+	groups := GroupPodsByController(m.items, m.sortColumn, m.sortOrder)
+	newCollapsed := make(map[string]struct{}, len(groups))
+	for _, g := range groups {
+		newCollapsed[g.Key] = struct{}{}
+	}
+	displayRows := BuildDisplayRows(groups, newCollapsed)
+
+	// If cursor was on a pod, move to its group header
+	_, groupTarget := m.cursorTarget()
+	if groupTarget == "" && len(m.displayRows) > 0 && m.cursor < len(m.displayRows) {
+		groupTarget = m.displayRows[m.cursor].GroupKey
+	}
+	newCursor := findRowIndex(displayRows, "", groupTarget)
+
+	ps := m.pageSize()
+	newOffset := 0
+	if ps > 0 {
+		newOffset = (newCursor / ps) * ps
+	}
+
+	return Model{
+		items:            m.items,
+		displayRows:      displayRows,
+		collapsed:        newCollapsed,
+		cursor:           newCursor,
+		selected:         m.selected,
+		width:            m.width,
+		height:           m.height,
+		offset:           newOffset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
+	}
+}
+
+// ExpandAll expands all controller groups.
+func (m Model) ExpandAll() Model {
+	newCollapsed := make(map[string]struct{})
+	groups := GroupPodsByController(m.items, m.sortColumn, m.sortOrder)
+	displayRows := BuildDisplayRows(groups, newCollapsed)
+
+	podTarget, groupTarget := m.cursorTarget()
+	newCursor := findRowIndex(displayRows, podTarget, groupTarget)
+
+	ps := m.pageSize()
+	newOffset := 0
+	if ps > 0 {
+		newOffset = (newCursor / ps) * ps
+	}
+
+	return Model{
+		items:            m.items,
+		displayRows:      displayRows,
+		collapsed:        newCollapsed,
+		cursor:           newCursor,
+		selected:         m.selected,
+		width:            m.width,
+		height:           m.height,
+		offset:           newOffset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
+	}
+}
+
+// AnyExpanded returns true if any controller group is expanded.
+func (m Model) AnyExpanded() bool {
+	for _, r := range m.displayRows {
+		if r.Kind == RowController {
+			if _, ok := m.collapsed[r.GroupKey]; !ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GoTop moves the cursor to the first item.
 func (m Model) GoTop() Model {
-	if len(m.items) == 0 {
+	if len(m.displayRows) == 0 {
 		return m
 	}
 	newModel := m
@@ -370,20 +556,33 @@ func (m Model) GoTop() Model {
 	return newModel
 }
 
-// GoBottom moves the cursor to the last item.
-func (m Model) GoBottom() Model {
-	if len(m.items) == 0 {
+// GoFirstPod moves the cursor to the first pod row, skipping any leading
+// controller headers. Falls back to GoTop if no pod rows exist.
+func (m Model) GoFirstPod() Model {
+	idx := firstPodRowIndex(m.displayRows)
+	if len(m.displayRows) == 0 {
 		return m
 	}
 	newModel := m
-	newModel.cursor = len(m.items) - 1
+	newModel.cursor = idx
+	newModel.offset = m.pageStartForCursor(idx)
+	return newModel
+}
+
+// GoBottom moves the cursor to the last item.
+func (m Model) GoBottom() Model {
+	if len(m.displayRows) == 0 {
+		return m
+	}
+	newModel := m
+	newModel.cursor = len(m.displayRows) - 1
 	newModel.offset = m.pageStartForCursor(newModel.cursor)
 	return newModel
 }
 
 // MoveUp moves the cursor up by one.
 func (m Model) MoveUp() Model {
-	if len(m.items) == 0 {
+	if len(m.displayRows) == 0 {
 		return m
 	}
 	start, _ := m.currentPageBounds()
@@ -397,7 +596,7 @@ func (m Model) MoveUp() Model {
 
 // MoveDown moves the cursor down by one.
 func (m Model) MoveDown() Model {
-	if len(m.items) == 0 {
+	if len(m.displayRows) == 0 {
 		return m
 	}
 	start, end := m.currentPageBounds()
@@ -412,7 +611,7 @@ func (m Model) MoveDown() Model {
 
 // PageUp moves the viewport and cursor up by one page with one-row overlap.
 func (m Model) PageUp() Model {
-	if len(m.items) == 0 {
+	if len(m.displayRows) == 0 {
 		return m
 	}
 	pageSize := m.pageSize()
@@ -425,8 +624,8 @@ func (m Model) PageUp() Model {
 	targetPage := currentPage - 1
 	targetStart := targetPage * pageSize
 	targetEnd := targetStart + pageSize
-	if targetEnd > len(m.items) {
-		targetEnd = len(m.items)
+	if targetEnd > len(m.displayRows) {
+		targetEnd = len(m.displayRows)
 	}
 	newModel := m
 	newModel.offset = targetStart
@@ -439,7 +638,7 @@ func (m Model) PageUp() Model {
 
 // PageDown moves the viewport and cursor down by one page with one-row overlap.
 func (m Model) PageDown() Model {
-	if len(m.items) == 0 {
+	if len(m.displayRows) == 0 {
 		return m
 	}
 	pageSize := m.pageSize()
@@ -453,8 +652,8 @@ func (m Model) PageDown() Model {
 	targetPage := currentPage + 1
 	targetStart := targetPage * pageSize
 	targetEnd := targetStart + pageSize
-	if targetEnd > len(m.items) {
-		targetEnd = len(m.items)
+	if targetEnd > len(m.displayRows) {
+		targetEnd = len(m.displayRows)
 	}
 	newModel := m
 	newModel.offset = targetStart
@@ -479,15 +678,17 @@ func (m Model) pageSize() int {
 }
 
 func (m Model) totalPages() int {
-	if len(m.items) == 0 {
+	count := len(m.displayRows)
+	if count == 0 {
 		return 1
 	}
 	size := m.pageSize()
-	return (len(m.items) + size - 1) / size
+	return (count + size - 1) / size
 }
 
 func (m Model) currentPage() int {
-	if len(m.items) == 0 {
+	count := len(m.displayRows)
+	if count == 0 {
 		return 0
 	}
 	size := m.pageSize()
@@ -500,28 +701,30 @@ func (m Model) currentPage() int {
 }
 
 func (m Model) pageStartForCursor(cursor int) int {
-	if len(m.items) == 0 {
+	count := len(m.displayRows)
+	if count == 0 {
 		return 0
 	}
 	if cursor < 0 {
 		cursor = 0
 	}
-	if cursor >= len(m.items) {
-		cursor = len(m.items) - 1
+	if cursor >= count {
+		cursor = count - 1
 	}
 	return (cursor / m.pageSize()) * m.pageSize()
 }
 
 func (m Model) currentPageBounds() (start, end int) {
-	if len(m.items) == 0 {
+	count := len(m.displayRows)
+	if count == 0 {
 		return 0, 0
 	}
 	page := m.currentPage()
 	size := m.pageSize()
 	start = page * size
 	end = start + size
-	if end > len(m.items) {
-		end = len(m.items)
+	if end > count {
+		end = count
 	}
 	return start, end
 }
@@ -542,204 +745,55 @@ func (m Model) SelectedCount() int {
 	return len(m.selected)
 }
 
-// View renders the pod list.
-func (m Model) View() string {
-	if m.loading {
-		spinner := styles.LoadingSpinner.Render(spinnerFrames[m.spinnerFrame])
-		prefix := styles.LoadingPrefix.Render(" Fetching pods...")
-		fact := styles.LoadingFact.Render(" " + loadingFacts[m.factIndex])
-		return fmt.Sprintf("  %s%s\n  %s", spinner, prefix, fact)
+// --- Tree helpers ---
+
+// cursorTarget returns identifiers for tracking the cursor across display row rebuilds.
+func (m Model) cursorTarget() (podTarget, groupTarget string) {
+	if len(m.displayRows) == 0 || m.cursor >= len(m.displayRows) {
+		return "", ""
 	}
-	if len(m.items) == 0 {
-		return styles.FooterHelp.Render("  No pods found.")
+	row := m.displayRows[m.cursor]
+	if row.Kind == RowPod && row.Pod != nil {
+		return podKey(*row.Pod), ""
 	}
+	return "", row.GroupKey
+}
 
-	var b strings.Builder
-
-	// Render column header row
-	b.WriteString(m.renderHeaderRow())
-	b.WriteString("\n")
-	start, end := m.currentPageBounds()
-
-	for i := start; i < end; i++ {
-		pod := m.items[i]
-		isCursor := i == m.cursor
-		_, isSelected := m.selected[podKey(pod)]
-
-		pointer := "  "
-		if isCursor {
-			pointer = styles.Pointer.Render("> ")
-		}
-
-		checkbox := "[ ] "
-		if isSelected {
-			checkbox = styles.StyleForStatus("Running").Render("[✓] ")
-		}
-
-		statusStyle := styles.StyleForStatus(string(pod.Status))
-		status := statusStyle.Render(fmt.Sprintf("%-16s", pod.Status))
-
-		age := FormatAge(pod.Age)
-		name := smartTruncateMiddle(pod.Name, nameColWidth)
-
-		metricsStr := ""
-		if m.metricsAvailable {
-			if pod.Metrics != nil {
-				cpu := styles.LoadingPrefix.Render(formatCPU(pod.Metrics.CPUMillicores))
-				mem := styles.LoadingPrefix.Render(formatMemory(pod.Metrics.MemoryBytes))
-				metricsStr = fmt.Sprintf("  cpu: %s  mem: %s", cpu, mem)
-			} else {
-				metricsStr = "  cpu: ---  mem: ---"
+// findRowIndex finds the display row index matching the given target.
+// Prefers pod target over group target (two-pass). Returns 0 if no match.
+func findRowIndex(rows []DisplayRow, podTarget, groupTarget string) int {
+	if podTarget != "" {
+		for i, r := range rows {
+			if r.Kind == RowPod && r.Pod != nil && podKey(*r.Pod) == podTarget {
+				return i
 			}
 		}
-
-		var line string
-		if m.showNamespace {
-			line = fmt.Sprintf("%s%s%-*s %-*s %s  %s  restarts: %d%s",
-				pointer, checkbox, namespaceColWidth, pod.Namespace, nameColWidth, name, status, age, pod.RestartCount, metricsStr)
-		} else {
-			line = fmt.Sprintf("%s%s%-*s %s  %s  restarts: %d%s",
-				pointer, checkbox, nameColWidth, name, status, age, pod.RestartCount, metricsStr)
-		}
-
-		if isCursor {
-			line = styles.SelectedRow.Render(line)
-		}
-
-		b.WriteString(line)
-		if i < end-1 {
-			b.WriteString("\n")
+	}
+	if groupTarget != "" {
+		for i, r := range rows {
+			if r.Kind == RowController && r.GroupKey == groupTarget {
+				return i
+			}
 		}
 	}
-
-	page := m.currentPage() + 1
-	totalPages := m.totalPages()
-	if totalPages > 1 {
-		showStart := start + 1
-		showEnd := end
-		pager := fmt.Sprintf("Showing %d-%d of %d Pods [%s] | %s/%s next | %s/%s previous",
-			showStart, showEnd, len(m.items),
-			styles.LabelText.Render(fmt.Sprintf("page %d/%d", page, totalPages)),
-			styles.LabelText.Render("[l]"),
-			styles.LabelText.Render("[→]"),
-			styles.LabelText.Render("[h]"),
-			styles.LabelText.Render("[←]"),
-		)
-		b.WriteString("\n")
-		b.WriteString(styles.FooterHelp.Render("  " + pager))
-	}
-
-	return b.String()
+	return 0
 }
 
-func smartTruncateMiddle(value string, width int) string {
-	if width <= 0 {
-		return ""
+// pruneSelected carries forward selection, removing keys for pods that no
+// longer exist.
+func pruneSelected(old map[string]struct{}, pods []k8s.PodInfo) map[string]struct{} {
+	if len(old) == 0 {
+		return make(map[string]struct{})
 	}
-	runes := []rune(value)
-	if len(runes) <= width {
-		return value
+	present := make(map[string]struct{}, len(pods))
+	for _, p := range pods {
+		present[podKey(p)] = struct{}{}
 	}
-	if width <= 3 {
-		return string(runes[:width])
-	}
-
-	keep := width - 3
-	left := keep/2 + keep%2
-	right := keep / 2
-
-	return string(runes[:left]) + "..." + string(runes[len(runes)-right:])
-}
-
-// renderHeaderRow renders the column header with sort indicator.
-func (m Model) renderHeaderRow() string {
-	indicator := func(col SortColumn) string {
-		if m.sortColumn == col {
-			return " " + SortIndicator(m.sortOrder)
+	result := make(map[string]struct{}, len(old))
+	for k := range old {
+		if _, ok := present[k]; ok {
+			result[k] = struct{}{}
 		}
-		return ""
 	}
-
-	// Pad to match the pointer + checkbox prefix ("  [ ] ")
-	prefix := "      "
-
-	var header string
-	if m.showNamespace {
-		header = fmt.Sprintf("%s%-*s %-*s %-16s  %-5s  %-10s",
-			prefix,
-			namespaceColWidth,
-			"NAMESPACE"+indicator(SortByName),
-			nameColWidth,
-			"NAME"+indicator(SortByName),
-			"STATUS"+indicator(SortByStatus),
-			"AGE"+indicator(SortByAge),
-			"RESTARTS"+indicator(SortByRestarts))
-	} else {
-		header = fmt.Sprintf("%s%-*s %-16s  %-5s  %-10s",
-			prefix,
-			nameColWidth,
-			"NAME"+indicator(SortByName),
-			"STATUS"+indicator(SortByStatus),
-			"AGE"+indicator(SortByAge),
-			"RESTARTS"+indicator(SortByRestarts))
-	}
-
-	if m.metricsAvailable {
-		header += fmt.Sprintf("  %-8s  %-8s",
-			"CPU"+indicator(SortByCPU),
-			"MEM"+indicator(SortByMemory))
-	}
-
-	return styles.LabelText.Render(header)
-}
-
-// formatCPU formats CPU millicores for display (e.g., "250m", "1.5").
-func formatCPU(millicores int64) string {
-	if millicores >= 1000 {
-		cores := float64(millicores) / 1000.0
-		if cores == float64(int64(cores)) {
-			return fmt.Sprintf("%d", int64(cores))
-		}
-		return fmt.Sprintf("%.1f", cores)
-	}
-	return fmt.Sprintf("%dm", millicores)
-}
-
-// formatMemory formats bytes for display (e.g., "128Mi", "2.1Gi").
-func formatMemory(bytes int64) string {
-	const (
-		ki = 1024
-		mi = 1024 * ki
-		gi = 1024 * mi
-	)
-	switch {
-	case bytes >= gi:
-		val := float64(bytes) / float64(gi)
-		if val == float64(int64(val)) {
-			return fmt.Sprintf("%dGi", int64(val))
-		}
-		return fmt.Sprintf("%.1fGi", val)
-	case bytes >= mi:
-		val := float64(bytes) / float64(mi)
-		if val == float64(int64(val)) {
-			return fmt.Sprintf("%dMi", int64(val))
-		}
-		return fmt.Sprintf("%.1fMi", val)
-	case bytes >= ki:
-		return fmt.Sprintf("%dKi", bytes/ki)
-	default:
-		return fmt.Sprintf("%dB", bytes)
-	}
-}
-
-// FormatAge formats a duration as a human-readable age string.
-func FormatAge(d time.Duration) string {
-	hours := d.Hours()
-	if hours >= 24 {
-		return fmt.Sprintf("%dd", int(hours/24))
-	}
-	if hours >= 1 {
-		return fmt.Sprintf("%dh", int(hours))
-	}
-	return fmt.Sprintf("%dm", int(d.Minutes()))
+	return result
 }

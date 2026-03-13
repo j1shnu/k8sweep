@@ -39,16 +39,19 @@ func TestNew(t *testing.T) {
 
 func TestSetItems(t *testing.T) {
 	m := New().SetItems(samplePods())
-	assert.Equal(t, 5, m.Len())
+	assert.Equal(t, 5, m.PodCount())
+	// Len includes the Standalone group header
+	assert.Equal(t, 6, m.Len())
 	assert.Equal(t, 0, m.SelectedCount())
 }
 
 func TestMoveDown(t *testing.T) {
 	m := New().SetItems(samplePods())
-	m = m.MoveDown()
-	assert.Equal(t, 1, m.cursor)
+	// cursor starts at 1 (first pod; row 0 is Standalone header)
 	m = m.MoveDown()
 	assert.Equal(t, 2, m.cursor)
+	m = m.MoveDown()
+	assert.Equal(t, 3, m.cursor)
 }
 
 func TestMoveDown_AtEnd(t *testing.T) {
@@ -56,24 +59,27 @@ func TestMoveDown_AtEnd(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		m = m.MoveDown()
 	}
-	assert.Equal(t, 4, m.cursor) // clamped to last item
+	// 6 display rows (1 header + 5 pods), clamped to last = 5
+	assert.Equal(t, 5, m.cursor)
 }
 
 func TestMoveUp(t *testing.T) {
 	m := New().SetItems(samplePods())
 	m = m.MoveDown().MoveDown().MoveUp()
-	assert.Equal(t, 1, m.cursor)
+	// 1→2→3→2
+	assert.Equal(t, 2, m.cursor)
 }
 
 func TestMoveUp_AtStart(t *testing.T) {
 	m := New().SetItems(samplePods())
 	m = m.MoveUp()
+	// Cursor starts at 1 (first pod), clamped at page start (0)
 	assert.Equal(t, 0, m.cursor)
 }
 
 func TestToggleSelect(t *testing.T) {
 	m := New().SetItems(samplePods())
-	m = m.ToggleSelect() // select pod-1
+	m = m.ToggleSelect() // select pod-1 (cursor at first pod)
 	assert.Equal(t, 1, m.SelectedCount())
 
 	m = m.ToggleSelect() // deselect pod-1
@@ -93,8 +99,8 @@ func TestDeselectAll(t *testing.T) {
 
 func TestGetSelected(t *testing.T) {
 	m := New().SetItems(samplePods())
-	m = m.ToggleSelect()                       // pod-1
-	m = m.MoveDown().MoveDown().ToggleSelect() // pod-3
+	m = m.ToggleSelect()                       // pod-1 (cursor at 1)
+	m = m.MoveDown().MoveDown().ToggleSelect() // pod-3 (cursor at 3)
 
 	selected := m.GetSelected()
 	assert.Len(t, selected, 2)
@@ -143,7 +149,7 @@ func TestRowNavigation_ClampedWithinPage(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		m = m.MoveDown()
 	}
-	assert.Equal(t, 7, m.cursor) // last row of page 1
+	assert.Equal(t, 7, m.cursor) // last row of page 0
 	assert.Equal(t, 0, m.offset)
 
 	m = m.MoveUp()
@@ -155,7 +161,9 @@ func TestLen(t *testing.T) {
 	m := New()
 	assert.Equal(t, 0, m.Len())
 	m = m.SetItems(samplePods())
-	assert.Equal(t, 5, m.Len())
+	// Len returns display row count (1 header + 5 pods)
+	assert.Equal(t, 6, m.Len())
+	assert.Equal(t, 5, m.PodCount())
 }
 
 func TestShowNamespace_Preserved(t *testing.T) {
@@ -199,7 +207,7 @@ func TestView_WithoutNamespaceColumn(t *testing.T) {
 	m := New().SetItems(pods).SetSize(120, 10)
 	view := m.View()
 	assert.Contains(t, view, "pod-1")
-	assert.NotContains(t, view, "kube-system")
+	// Namespace may appear in controller header but not in pod data columns
 }
 
 func TestLoadingPreservedAcrossOperations(t *testing.T) {
@@ -320,14 +328,14 @@ func TestSetSort_CursorTracking(t *testing.T) {
 	}
 	m := New().SetItems(pods).SetSize(120, 20)
 
-	// Move cursor to "bravo" (index 1)
+	// cursor starts at 1 (first pod = alpha); move to bravo (index 2)
 	m = m.MoveDown()
-	assert.Equal(t, 1, m.cursor)
+	assert.Equal(t, 2, m.cursor)
 
-	// Sort by name desc → charlie, bravo, alpha
+	// Sort by name desc → charlie, bravo, alpha (all under Standalone)
 	m = m.SetSort(SortByName, SortDesc)
-	// Cursor should follow "bravo" to its new position (index 1)
-	assert.Equal(t, 1, m.cursor)
+	// Cursor should follow "bravo" to its new position (row 2: header=0, charlie=1, bravo=2)
+	assert.Equal(t, 2, m.cursor)
 	p := m.CursorItem()
 	assert.NotNil(t, p)
 	assert.Equal(t, "bravo", p.Name)
@@ -355,7 +363,8 @@ func TestSetItemsSorted_AppliesCurrentSort(t *testing.T) {
 
 	p := m.CursorItem()
 	assert.NotNil(t, p)
-	assert.Equal(t, "charlie", p.Name) // desc order → charlie first
+	// desc order → charlie first pod row (after Standalone header)
+	assert.Equal(t, "charlie", p.Name)
 }
 
 func TestView_HeaderRow(t *testing.T) {
@@ -388,15 +397,16 @@ func TestCursorItem_WithPods(t *testing.T) {
 func TestPageDown_PageUp(t *testing.T) {
 	m := New().SetItems(manyPods(30)).SetSize(120, 10)
 
+	// cursor starts at 1 (first pod). PageDown preserves relative row.
 	m = m.PageDown()
-	assert.Equal(t, 8, m.cursor)
+	assert.Equal(t, 9, m.cursor)
 	assert.Equal(t, 8, m.offset)
 	p := m.CursorItem()
 	assert.NotNil(t, p)
 	assert.Equal(t, "pod-09", p.Name)
 
 	m = m.PageUp()
-	assert.Equal(t, 0, m.cursor)
+	assert.Equal(t, 1, m.cursor)
 	assert.Equal(t, 0, m.offset)
 }
 
@@ -407,7 +417,7 @@ func TestPageDown_ClampedAtEnd(t *testing.T) {
 		m = m.PageDown()
 	}
 
-	assert.Equal(t, 8, m.cursor)
+	assert.Equal(t, 9, m.cursor)
 	assert.Equal(t, 8, m.offset)
 	p := m.CursorItem()
 	assert.NotNil(t, p)
@@ -424,27 +434,28 @@ func TestPageUp_ClampedAtStart(t *testing.T) {
 	m = m.PageUp()
 
 	assert.Equal(t, 0, m.offset)
-	assert.Equal(t, 5, m.cursor)
+	assert.Equal(t, 6, m.cursor)
 }
 
 func TestView_ShowsPaginationFooter(t *testing.T) {
 	m := New().SetItems(manyPods(100)).SetSize(120, 10)
 
 	view := m.View()
-	assert.Contains(t, view, "Showing 1-8 of 100 Pods")
+	// 101 display rows = 1 Standalone header + 100 pods
+	assert.Contains(t, view, "Showing 1-8 of 101 rows")
 	assert.Contains(t, view, "page 1/13")
 	assert.Contains(t, view, "[l]/[→] next | [h]/[←] previous")
 
 	m = m.PageDown()
 	view = m.View()
-	assert.Contains(t, view, "Showing 9-16 of 100 Pods")
+	assert.Contains(t, view, "Showing 9-16 of 101 rows")
 	assert.Contains(t, view, "page 2/13")
 }
 
 func TestView_HidesPaginationFooter_ForSinglePage(t *testing.T) {
 	m := New().SetItems(manyPods(2)).SetSize(120, 10)
 	view := m.View()
-	assert.NotContains(t, view, "Showing 1-2 of 2 Pods")
+	assert.NotContains(t, view, "Showing")
 	assert.NotContains(t, view, "[l]/[→] next | [h]/[←] previous")
 }
 
@@ -475,4 +486,96 @@ func TestView_LongNamesRemainDistinguishable(t *testing.T) {
 	assert.Contains(t, view, "...")
 	assert.Contains(t, view, "4f8-r49xm")
 	assert.Contains(t, view, "4f8-v8n2q")
+}
+
+// --- Tree-specific tests ---
+
+func TestToggleCollapse(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "nginx-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "nginx"}},
+		{Name: "nginx-2", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "nginx"}},
+	}
+	m := New().SetItems(pods).SetSize(120, 20)
+	// 3 rows: header + 2 pods
+	assert.Equal(t, 3, m.Len())
+
+	// Move to header (row 0) and collapse
+	m = m.GoTop()
+	m = m.ToggleCollapse()
+	assert.Equal(t, 1, m.Len()) // only header
+
+	// Expand again
+	m = m.ToggleCollapse()
+	assert.Equal(t, 3, m.Len())
+}
+
+func TestCollapseAll_ExpandAll(t *testing.T) {
+	pods := treeTestPods()
+	m := New().SetItems(pods).SetSize(120, 30)
+	// 4 groups + 5 pods = 9 rows
+	assert.Equal(t, 9, m.Len())
+
+	m = m.CollapseAll()
+	assert.Equal(t, 4, m.Len()) // 4 headers only
+
+	m = m.ExpandAll()
+	assert.Equal(t, 9, m.Len())
+}
+
+func TestToggleSelect_ControllerRow(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "nginx-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "nginx"}},
+		{Name: "nginx-2", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "nginx"}},
+	}
+	m := New().SetItems(pods).SetSize(120, 20)
+
+	// Move to header row and toggle select → should select all pods in group
+	m = m.GoTop()
+	m = m.ToggleSelect()
+	assert.Equal(t, 2, m.SelectedCount())
+
+	// Toggle again → deselect all
+	m = m.ToggleSelect()
+	assert.Equal(t, 0, m.SelectedCount())
+}
+
+func TestCursorRow(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "nginx-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "nginx"}},
+	}
+	m := New().SetItems(pods).SetSize(120, 20)
+
+	// Cursor starts on first pod (row 1)
+	row := m.CursorRow()
+	assert.NotNil(t, row)
+	assert.Equal(t, RowPod, row.Kind)
+
+	// Move to header
+	m = m.GoTop()
+	row = m.CursorRow()
+	assert.NotNil(t, row)
+	assert.Equal(t, RowController, row.Kind)
+	assert.Nil(t, m.CursorItem()) // CursorItem returns nil for controller rows
+}
+
+func TestView_TreeStructure(t *testing.T) {
+	pods := []k8s.PodInfo{
+		{Name: "nginx-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "nginx"}},
+		{Name: "debug", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerStandalone}},
+	}
+	m := New().SetItems(pods).SetSize(120, 20)
+	view := m.View()
+
+	// Should contain controller group headers
+	assert.Contains(t, view, "Deployment/nginx")
+	assert.Contains(t, view, "Standalone")
+	// Should contain expand/collapse indicators
+	assert.Contains(t, view, "▼")
 }

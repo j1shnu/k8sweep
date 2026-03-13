@@ -87,3 +87,9 @@ type SearchDebouncedMsg struct {
 	Seq   uint64
 	Query string
 }
+
+// OwnerResolvedMsg is sent when async ownership resolution completes.
+type OwnerResolvedMsg struct {
+	Pods    []k8s.PodInfo
+	FetchID uint64 // matches fetchID or watchID to discard stale results
+}

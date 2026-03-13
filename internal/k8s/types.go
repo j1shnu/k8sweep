@@ -28,6 +28,54 @@ var dirtyStatuses = map[PodStatus]struct{}{
 	StatusOOMKilled:     {},
 }
 
+// ControllerKind identifies the type of workload controller that owns a pod.
+type ControllerKind string
+
+const (
+	ControllerDeployment  ControllerKind = "Deployment"
+	ControllerStatefulSet ControllerKind = "StatefulSet"
+	ControllerDaemonSet   ControllerKind = "DaemonSet"
+	ControllerJob         ControllerKind = "Job"
+	ControllerCronJob     ControllerKind = "CronJob"
+	ControllerReplicaSet  ControllerKind = "ReplicaSet"
+	ControllerStandalone  ControllerKind = "Standalone"
+)
+
+// controllerFilterOrder defines the cycle order for the controller filter toggle.
+var controllerFilterOrder = []ControllerKind{
+	"", // All (no filter)
+	ControllerDeployment,
+	ControllerStatefulSet,
+	ControllerDaemonSet,
+	ControllerJob,
+	ControllerCronJob,
+	ControllerStandalone,
+}
+
+// NextControllerFilter returns the next controller kind in the cycle order.
+func NextControllerFilter(current ControllerKind) ControllerKind {
+	for i, k := range controllerFilterOrder {
+		if k == current {
+			return controllerFilterOrder[(i+1)%len(controllerFilterOrder)]
+		}
+	}
+	return ""
+}
+
+// ControllerRef identifies the resolved top-level controller for a pod.
+type ControllerRef struct {
+	Kind ControllerKind
+	Name string
+}
+
+// String returns "Kind/Name" or "Standalone" for display.
+func (c ControllerRef) String() string {
+	if c.Kind == ControllerStandalone || c.Kind == "" {
+		return string(c.Kind)
+	}
+	return string(c.Kind) + "/" + c.Name
+}
+
 // PodMetrics holds CPU and memory usage for a single pod.
 type PodMetrics struct {
 	CPUMillicores int64
@@ -47,9 +95,15 @@ type PodInfo struct {
 	Age          time.Duration
 	RestartCount int32
 	NodeName     string
-	OwnerRef     string      // e.g. "ReplicaSet/my-app-abc123", empty for standalone pods
-	Metrics      *PodMetrics // nil when metrics are unavailable
-	DeletionTime *time.Time  // non-nil when pod is terminating (from DeletionTimestamp)
+	OwnerRef     string        // e.g. "ReplicaSet/my-app-abc123", empty for standalone pods
+	Controller   ControllerRef // resolved top-level controller (Deployment, not ReplicaSet)
+	Metrics      *PodMetrics   // nil when metrics are unavailable
+	DeletionTime *time.Time    // non-nil when pod is terminating (from DeletionTimestamp)
+}
+
+// IsStandalone returns true if the pod has no owning controller.
+func (p PodInfo) IsStandalone() bool {
+	return p.Controller.Kind == ControllerStandalone
 }
 
 // IsDirty returns true if the pod's status is in the dirty set,
@@ -86,7 +140,8 @@ type ClusterInfo struct {
 
 // ResourceFilter controls which pods are displayed.
 type ResourceFilter struct {
-	ShowDirtyOnly bool
+	ShowDirtyOnly      bool
+	ControllerKindFilter ControllerKind // empty means show all
 }
 
 // DeleteResult holds the outcome of a single pod deletion.

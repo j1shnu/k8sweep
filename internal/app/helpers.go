@@ -28,16 +28,30 @@ func (m Model) activeSearchQuery() string {
 	return m.searchQuery
 }
 
-// applyFilters applies dirty filter and name search to a pod list.
+// applyFilters applies dirty filter, controller filter, and name search to a pod list.
 func applyFilters(pods []k8s.PodInfo, filter k8s.ResourceFilter, searchQuery string) []k8s.PodInfo {
 	result := pods
 	if filter.ShowDirtyOnly {
 		result = k8s.FilterDirtyPods(result)
 	}
+	if filter.ControllerKindFilter != "" {
+		result = filterByControllerKind(result, filter.ControllerKindFilter)
+	}
 	if searchQuery != "" {
 		result = filterByName(result, searchQuery)
 	}
 	return result
+}
+
+// filterByControllerKind returns pods whose Controller.Kind matches the given kind.
+func filterByControllerKind(pods []k8s.PodInfo, kind k8s.ControllerKind) []k8s.PodInfo {
+	filtered := make([]k8s.PodInfo, 0, len(pods))
+	for _, p := range pods {
+		if p.Controller.Kind == kind {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }
 
 // filterByName returns pods whose name contains the query (case-insensitive).
