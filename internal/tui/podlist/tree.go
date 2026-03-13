@@ -56,7 +56,7 @@ func GroupPodsByController(pods []k8s.PodInfo, sortCol SortColumn, sortOrder Sor
 
 	for i := range pods {
 		p := pods[i]
-		key := controllerGroupKey(p.Controller)
+		key := ControllerGroupKey(p.Controller)
 		g, ok := groupMap[key]
 		if !ok {
 			g = &ControllerGroup{
@@ -119,7 +119,9 @@ func BuildDisplayRows(groups []ControllerGroup, collapsed map[string]struct{}) [
 	return rows
 }
 
-func controllerGroupKey(ref k8s.ControllerRef) string {
+// ControllerGroupKey returns the display group key for a controller reference.
+// Used for tree grouping and drill-down filtering.
+func ControllerGroupKey(ref k8s.ControllerRef) string {
 	if ref.Kind == k8s.ControllerStandalone || ref.Kind == "" {
 		return "Standalone"
 	}

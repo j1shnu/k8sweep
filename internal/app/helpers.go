@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jprasad/k8sweep/internal/k8s"
 	"github.com/jprasad/k8sweep/internal/tui/header"
+	"github.com/jprasad/k8sweep/internal/tui/podlist"
 )
 
 const deleteTimeout = 30 * time.Second
@@ -115,19 +116,11 @@ func (m Model) handleMetricsProbed(msg MetricsProbedMsg) (Model, tea.Cmd) {
 func filterByControllerGroup(pods []k8s.PodInfo, groupKey string) []k8s.PodInfo {
 	filtered := make([]k8s.PodInfo, 0, len(pods))
 	for _, p := range pods {
-		if controllerGroupKeyForPod(p) == groupKey {
+		if podlist.ControllerGroupKey(p.Controller) == groupKey {
 			filtered = append(filtered, p)
 		}
 	}
 	return filtered
-}
-
-// controllerGroupKeyForPod returns the group key for a pod, matching the tree.go logic.
-func controllerGroupKeyForPod(p k8s.PodInfo) string {
-	if p.Controller.Kind == k8s.ControllerStandalone || p.Controller.Kind == "" {
-		return "Standalone"
-	}
-	return string(p.Controller.Kind) + "/" + p.Controller.Name
 }
 
 func isShellEligibleStatus(status k8s.PodStatus) bool {

@@ -718,7 +718,9 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 	newWatcher := k8s.NewPodWatcher(m.client.Clientset(), ns)
 	newWatchID := m.watchID + 1
 
-	// Reset controller filter on namespace switch
+	// Reset controller filter and drill-down on namespace switch.
+	// controllerDrillDown is intentionally omitted (zero-valued) to clear it,
+	// since controller group keys are namespace-scoped and invalid after switch.
 	newFilter := k8s.ResourceFilter{ShowDirtyOnly: m.filter.ShowDirtyOnly}
 	newModel := Model{
 		client:           m.client,
