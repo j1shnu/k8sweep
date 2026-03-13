@@ -121,6 +121,16 @@ func (m Model) handleNamespaceKey() (Model, tea.Cmd) {
 	newModel.nsLoading = true
 	newModel.nsSpinnerFrame = 0
 	newModel.statusMsg = ""
+
+	// If pods are still loading, stop the watcher to free API bandwidth
+	// so the namespace list fetch gets priority. Bump watchID to discard
+	// any in-flight watch results. switchNamespace() creates a fresh watcher.
+	if m.podList.IsLoading() && m.watcher != nil {
+		m.watcher.Stop()
+		newModel.watcher = nil
+		newModel.watchID = m.watchID + 1
+	}
+
 	return newModel, tea.Batch(newModel.fetchNamespacesCmd(), loadingTickCmd())
 }
 
