@@ -16,8 +16,10 @@ type WatchPodsMsg struct {
 }
 
 // WatchStoppedMsg is sent when the pod watcher's channel closes.
+// Err is non-nil when the watcher stopped due to a non-retriable error (e.g. auth failure).
 type WatchStoppedMsg struct {
 	WatchID uint64
+	Err     error
 }
 
 // PodsDeletedMsg is sent after a batch delete operation completes.

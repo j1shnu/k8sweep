@@ -179,6 +179,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleWatchPods(msg)
 
 	case WatchStoppedMsg:
+		if msg.Err != nil {
+			newModel := m
+			newModel.err = msg.Err
+			newModel.podList = m.podList.SetItems(nil) // clears loading state
+			return newModel, nil
+		}
 		// Old watcher stopped (namespace switch); ignore
 		return m, nil
 
@@ -295,7 +301,7 @@ func (m Model) View() string {
 	case stateSearching:
 		status := ""
 		if m.err != nil {
-			status = "\n Error: " + m.err.Error()
+			status = "\n " + styles.ErrorMessage.Render("Error: "+m.err.Error())
 		}
 		return m.header.View() + "\n" +
 			m.podList.View() + status + "\n" +
@@ -311,7 +317,7 @@ func (m Model) View() string {
 			status = "\n" + m.statusMsg
 		}
 		if m.err != nil {
-			status = "\n Error: " + m.err.Error()
+			status = "\n " + styles.ErrorMessage.Render("Error: "+m.err.Error())
 		}
 		filterHints := ""
 		if m.filter.ControllerKindFilter != "" {
