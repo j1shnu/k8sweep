@@ -75,6 +75,10 @@ var (
 			Bold(true).
 			Foreground(lipgloss.Color("#8899AA"))
 
+	ControllerRowDirty = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#FF6600"))
+
 	LoadingSpinner = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(ColorAccent)

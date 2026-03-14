@@ -112,7 +112,11 @@ func (m Model) renderControllerRow(row DisplayRow, isCursor bool) string {
 		}
 	}
 
-	groupLabel := styles.ControllerRow.Render(indicator + " " + row.GroupKey)
+	labelStyle := styles.ControllerRow
+	if groupHasDirtyPod(g) {
+		labelStyle = styles.ControllerRowDirty
+	}
+	groupLabel := labelStyle.Render(indicator + " " + row.GroupKey)
 	line := fmt.Sprintf("%s%s%s  (%s)%s", pointer, checkbox, groupLabel, summary, metricsStr)
 
 	if isCursor {
@@ -215,7 +219,8 @@ func (m Model) renderHeaderRow() string {
 	return styles.LabelText.Render(header)
 }
 
-// buildGroupSummary returns a summary string like "3 pods: 2 Running, 1 CrashLoopBackOff".
+// buildGroupSummary returns a summary string like "3 pods: 2 Running, 1 CrashLoopBackOff"
+// with each status count color-coded to match pod row status colors.
 func buildGroupSummary(g *ControllerGroup) string {
 	counts := g.StatusCounts()
 	total := len(g.Pods)
@@ -233,7 +238,8 @@ func buildGroupSummary(g *ControllerGroup) string {
 		k8s.StatusUnknown,
 	} {
 		if c, ok := counts[status]; ok && c > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", c, status))
+			label := fmt.Sprintf("%d %s", c, status)
+			parts = append(parts, styles.StyleForStatus(string(status)).Render(label))
 		}
 	}
 
@@ -241,6 +247,16 @@ func buildGroupSummary(g *ControllerGroup) string {
 		return fmt.Sprintf("%d %s", total, noun)
 	}
 	return fmt.Sprintf("%d %s: %s", total, noun, strings.Join(parts, ", "))
+}
+
+// groupHasDirtyPod returns true if any pod in the group is dirty.
+func groupHasDirtyPod(g *ControllerGroup) bool {
+	for _, p := range g.Pods {
+		if p.IsDirty() {
+			return true
+		}
+	}
+	return false
 }
 
 // smartTruncateMiddle truncates a string in the middle with "..." if it exceeds width.
