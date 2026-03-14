@@ -207,7 +207,7 @@ func (m Model) savePrefsCmd() tea.Cmd {
 		SortOrder:           sortOrderString(m.podList.SortOrder()),
 		DirtyFilter:         m.filter.ShowDirtyOnly,
 		Namespace:           ns,
-		AllCollapsed:        !m.podList.AnyExpanded(),
+		AllCollapsed:        m.savedAllCollapsed,
 		SearchQuery:         m.searchQuery,
 		ControllerDrillDown: m.controllerDrillDown,
 	}

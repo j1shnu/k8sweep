@@ -533,6 +533,52 @@ func (m Model) ExpandAll() Model {
 	}
 }
 
+// SmartCollapse collapses controller groups that have no dirty pods, leaving
+// groups with at least one dirty pod expanded. Used on startup to surface
+// problematic pods without visual clutter from healthy groups.
+func (m Model) SmartCollapse() Model {
+	groups := GroupPodsByController(m.items, m.sortColumn, m.sortOrder)
+	newCollapsed := make(map[string]struct{}, len(groups))
+	for _, g := range groups {
+		hasDirty := false
+		for _, p := range g.Pods {
+			if p.IsDirty() {
+				hasDirty = true
+				break
+			}
+		}
+		if !hasDirty {
+			newCollapsed[g.Key] = struct{}{}
+		}
+	}
+	displayRows := BuildDisplayRows(groups, newCollapsed)
+	cursor := firstPodRowIndex(displayRows)
+
+	ps := m.pageSize()
+	newOffset := 0
+	if ps > 0 {
+		newOffset = (cursor / ps) * ps
+	}
+
+	return Model{
+		items:            m.items,
+		displayRows:      displayRows,
+		collapsed:        newCollapsed,
+		cursor:           cursor,
+		selected:         m.selected,
+		width:            m.width,
+		height:           m.height,
+		offset:           newOffset,
+		loading:          m.loading,
+		spinnerFrame:     m.spinnerFrame,
+		factIndex:        m.factIndex,
+		showNamespace:    m.showNamespace,
+		metricsAvailable: m.metricsAvailable,
+		sortColumn:       m.sortColumn,
+		sortOrder:        m.sortOrder,
+	}
+}
+
 // AnyExpanded returns true if any controller group is expanded.
 func (m Model) AnyExpanded() bool {
 	for _, r := range m.displayRows {

@@ -62,8 +62,10 @@ func (m Model) handleBrowsingKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel := m
 		if m.podList.AnyExpanded() {
 			newModel.podList = m.podList.CollapseAll()
+			newModel.savedAllCollapsed = true
 		} else {
 			newModel.podList = m.podList.ExpandAll()
+			newModel.savedAllCollapsed = false
 		}
 		return newModel, newModel.savePrefsCmd()
 	case key.Matches(msg, m.keys.SelectAll):

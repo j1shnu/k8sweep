@@ -117,6 +117,7 @@ type Model struct {
 
 	prefsPath              string // path to preferences file (empty = no persistence)
 	initialCollapseApplied bool   // true after first pod load applies saved collapse state
+	collapseAfterResolve   bool   // true when collapse must be re-applied after owner resolution (keys change)
 	savedAllCollapsed      bool   // saved preference: start with groups collapsed
 }
 
@@ -427,12 +428,17 @@ func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
 	newModel.err = nil
 	newModel.statusMsg = ""
 
-	// Apply saved collapse preference on first data load
-	if !newModel.initialCollapseApplied && newModel.savedAllCollapsed {
-		newModel.podList = newModel.podList.CollapseAll()
+	// Apply initial collapse on first data load. Group keys are pre-resolution
+	// (e.g. ReplicaSet/foo) so collapseAfterResolve ensures re-application
+	// once owner resolution changes keys (e.g. to Deployment/foo).
+	if !newModel.initialCollapseApplied {
+		if newModel.savedAllCollapsed {
+			newModel.podList = newModel.podList.CollapseAll()
+		} else {
+			newModel.podList = newModel.podList.SmartCollapse()
+		}
 		newModel.initialCollapseApplied = true
-	} else if !newModel.initialCollapseApplied {
-		newModel.initialCollapseApplied = true
+		newModel.collapseAfterResolve = true
 	}
 
 	// Use fetchID for owner resolution tracking (watchID is for watch events only)
@@ -477,12 +483,15 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) (Model, tea.Cmd) {
 		newModel.statusMsg = ""
 	}
 
-	// Apply saved collapse preference on first data load
-	if !newModel.initialCollapseApplied && newModel.savedAllCollapsed {
-		newModel.podList = newModel.podList.CollapseAll()
+	// Apply initial collapse on first data load (see handleWatchPods comment).
+	if !newModel.initialCollapseApplied {
+		if newModel.savedAllCollapsed {
+			newModel.podList = newModel.podList.CollapseAll()
+		} else {
+			newModel.podList = newModel.podList.SmartCollapse()
+		}
 		newModel.initialCollapseApplied = true
-	} else if !newModel.initialCollapseApplied {
-		newModel.initialCollapseApplied = true
+		newModel.collapseAfterResolve = true
 	}
 
 	return newModel, newModel.resolveOwnersCmd(allPods, msg.FetchID)
@@ -507,6 +516,18 @@ func (m Model) handleOwnerResolved(msg OwnerResolvedMsg) Model {
 	newModel.totalPodCount = len(allPods)
 	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
 		SetStatusSummary(buildStatusSummary(allPods))
+
+	// Re-apply collapse after owner resolution. Group keys change during
+	// resolution (e.g. ReplicaSet/foo → Deployment/foo) which invalidates
+	// the collapsed set built from pre-resolution keys.
+	if newModel.collapseAfterResolve {
+		if newModel.savedAllCollapsed {
+			newModel.podList = newModel.podList.CollapseAll()
+		} else {
+			newModel.podList = newModel.podList.SmartCollapse()
+		}
+		newModel.collapseAfterResolve = false
+	}
 
 	return newModel
 }
@@ -746,7 +767,8 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		searchQuery:            m.searchQuery,
 		metricsAvailable:       m.metricsAvailable,
 		prefsPath:              m.prefsPath,
-		initialCollapseApplied: true, // don't re-apply collapse on namespace switch
+		savedAllCollapsed:      m.savedAllCollapsed,
+		initialCollapseApplied: false, // re-apply collapse preference when new pods arrive
 	}
 	return newModel, tea.Batch(newModel.startAndWatchCmd(), newModel.fetchMetricsCmd(), loadingTickCmd(), newModel.savePrefsCmd())
 }

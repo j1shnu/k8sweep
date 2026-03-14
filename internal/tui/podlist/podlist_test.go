@@ -524,6 +524,76 @@ func TestCollapseAll_ExpandAll(t *testing.T) {
 	assert.Equal(t, 9, m.Len())
 }
 
+func TestSmartCollapse(t *testing.T) {
+	t.Run("mixed dirty and healthy groups", func(t *testing.T) {
+		// treeTestPods: Deployment/nginx (has CrashLoopBack), Job/worker-job (Completed),
+		// StatefulSet/redis (Running), Standalone (Running)
+		pods := treeTestPods()
+		m := New().SetItems(pods).SetSize(120, 30)
+		m = m.SmartCollapse()
+
+		// Dirty groups expanded: Deployment/nginx (2 pods) + Job/worker-job (1 pod) = 2 headers + 3 pods
+		// Healthy groups collapsed: StatefulSet/redis + Standalone = 2 headers only
+		// Total: 4 headers + 3 pods = 7 rows
+		assert.Equal(t, 7, m.Len())
+
+		// Cursor should be on the first pod row
+		row := m.CursorRow()
+		assert.NotNil(t, row)
+		assert.Equal(t, RowPod, row.Kind)
+	})
+
+	t.Run("all pods healthy", func(t *testing.T) {
+		pods := []k8s.PodInfo{
+			{Name: "web-1", Namespace: "default", Status: k8s.StatusRunning,
+				Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "web"}},
+			{Name: "api-1", Namespace: "default", Status: k8s.StatusRunning,
+				Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "api"}},
+		}
+		m := New().SetItems(pods).SetSize(120, 30)
+		m = m.SmartCollapse()
+
+		// All groups collapsed: 2 headers only
+		assert.Equal(t, 2, m.Len())
+		assert.False(t, m.AnyExpanded())
+	})
+
+	t.Run("all pods dirty", func(t *testing.T) {
+		pods := []k8s.PodInfo{
+			{Name: "crash-1", Namespace: "default", Status: k8s.StatusCrashLoopBack,
+				Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "crash"}},
+			{Name: "evicted-1", Namespace: "default", Status: k8s.StatusEvicted,
+				Controller: k8s.ControllerRef{Kind: k8s.ControllerStatefulSet, Name: "evicted"}},
+		}
+		m := New().SetItems(pods).SetSize(120, 30)
+		m = m.SmartCollapse()
+
+		// All groups expanded: 2 headers + 2 pods = 4 rows
+		assert.Equal(t, 4, m.Len())
+		assert.True(t, m.AnyExpanded())
+	})
+
+	t.Run("empty pod list", func(t *testing.T) {
+		m := New().SetItems(nil).SetSize(120, 30)
+		m = m.SmartCollapse()
+		assert.Equal(t, 0, m.Len())
+	})
+
+	t.Run("standalone group with dirty pod", func(t *testing.T) {
+		pods := []k8s.PodInfo{
+			{Name: "healthy-deploy", Namespace: "default", Status: k8s.StatusRunning,
+				Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "app"}},
+			{Name: "standalone-crash", Namespace: "default", Status: k8s.StatusCrashLoopBack,
+				Controller: k8s.ControllerRef{Kind: k8s.ControllerStandalone}},
+		}
+		m := New().SetItems(pods).SetSize(120, 30)
+		m = m.SmartCollapse()
+
+		// Deployment/app collapsed (1 header), Standalone expanded (1 header + 1 pod) = 3 rows
+		assert.Equal(t, 3, m.Len())
+	})
+}
+
 func TestToggleSelect_ControllerRow(t *testing.T) {
 	pods := []k8s.PodInfo{
 		{Name: "nginx-1", Namespace: "default", Status: k8s.StatusRunning,
