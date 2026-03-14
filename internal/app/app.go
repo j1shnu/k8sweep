@@ -87,6 +87,8 @@ type Model struct {
 	shellWarningAcked bool       // true after user acknowledges shell warning for risky pod states
 	containerPickFor  pickPurpose // what the container picker is being used for
 
+	controllerDrillDown string // group key for drill-down filter (empty = full view)
+
 	// Search
 	searchInput textinput.Model
 	searchQuery string // active name filter (empty = no filter)
@@ -115,6 +117,7 @@ type Model struct {
 
 	prefsPath              string // path to preferences file (empty = no persistence)
 	initialCollapseApplied bool   // true after first pod load applies saved collapse state
+	collapseAfterResolve   bool   // true when collapse must be re-applied after owner resolution (keys change)
 	savedAllCollapsed      bool   // saved preference: start with groups collapsed
 }
 
@@ -167,9 +170,10 @@ func NewModel(client *k8s.Client, opts ...ModelOption) Model {
 		nsSwitcher:        namespace.New(),
 		help:              help.New(keys.FullHelp()),
 		containerSel:      containerpicker.New(),
-		searchQuery:       cfg.prefs.SearchQuery,
-		prefsPath:         cfg.prefsPath,
-		savedAllCollapsed: cfg.prefs.AllCollapsed,
+		searchQuery:         cfg.prefs.SearchQuery,
+		controllerDrillDown: cfg.prefs.ControllerDrillDown,
+		prefsPath:           cfg.prefsPath,
+		savedAllCollapsed:   cfg.prefs.AllCollapsed,
 	}
 }
 
@@ -368,6 +372,9 @@ func (m Model) View() string {
 			status = "\n " + styles.ErrorMessage.Render("Error: "+m.err.Error())
 		}
 		filterHints := ""
+		if m.controllerDrillDown != "" {
+			filterHints += "\n " + styles.FilterBadge.Render(" CONTROLLER ") + " " + m.controllerDrillDown + "  " + styles.FooterHelp.Render("[esc] exit")
+		}
 		if m.filter.ControllerKindFilter != "" {
 			filterHints += "\n " + styles.FilterBadge.Render(" CTRL ") + " " + string(m.filter.ControllerKindFilter)
 		}
@@ -409,7 +416,7 @@ func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
 		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
 	}
 
-	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 	totalCount := len(allPods)
 
 	newModel := m
@@ -421,17 +428,23 @@ func (m Model) handleWatchPods(msg WatchPodsMsg) (Model, tea.Cmd) {
 	newModel.err = nil
 	newModel.statusMsg = ""
 
-	// Apply saved collapse preference on first data load
-	if !newModel.initialCollapseApplied && newModel.savedAllCollapsed {
-		newModel.podList = newModel.podList.CollapseAll()
+	// Apply initial collapse on first data load. Group keys are pre-resolution
+	// (e.g. ReplicaSet/foo) so collapseAfterResolve ensures re-application
+	// once owner resolution changes keys (e.g. to Deployment/foo).
+	if !newModel.initialCollapseApplied {
+		if newModel.savedAllCollapsed {
+			newModel.podList = newModel.podList.CollapseAll()
+		} else {
+			newModel.podList = newModel.podList.SmartCollapse()
+		}
 		newModel.initialCollapseApplied = true
-	} else if !newModel.initialCollapseApplied {
-		newModel.initialCollapseApplied = true
+		newModel.collapseAfterResolve = true
 	}
 
 	// Use fetchID for owner resolution tracking (watchID is for watch events only)
 	resolveID := fetchSeq.Add(1)
 	newModel.fetchID = resolveID
+
 	return newModel, tea.Batch(m.watchPodsCmd(), newModel.resolveOwnersCmd(allPods, resolveID))
 }
 
@@ -453,7 +466,7 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) (Model, tea.Cmd) {
 		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
 	}
 
-	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 	totalCount := len(allPods)
 
 	newModel := m
@@ -470,12 +483,15 @@ func (m Model) handlePodsLoaded(msg PodsLoadedMsg) (Model, tea.Cmd) {
 		newModel.statusMsg = ""
 	}
 
-	// Apply saved collapse preference on first data load
-	if !newModel.initialCollapseApplied && newModel.savedAllCollapsed {
-		newModel.podList = newModel.podList.CollapseAll()
+	// Apply initial collapse on first data load (see handleWatchPods comment).
+	if !newModel.initialCollapseApplied {
+		if newModel.savedAllCollapsed {
+			newModel.podList = newModel.podList.CollapseAll()
+		} else {
+			newModel.podList = newModel.podList.SmartCollapse()
+		}
 		newModel.initialCollapseApplied = true
-	} else if !newModel.initialCollapseApplied {
-		newModel.initialCollapseApplied = true
+		newModel.collapseAfterResolve = true
 	}
 
 	return newModel, newModel.resolveOwnersCmd(allPods, msg.FetchID)
@@ -492,7 +508,7 @@ func (m Model) handleOwnerResolved(msg OwnerResolvedMsg) Model {
 		allPods = k8s.MergePodMetrics(allPods, m.lastMetrics)
 	}
 
-	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+	displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 
 	newModel := m
 	newModel.allPods = allPods
@@ -500,6 +516,19 @@ func (m Model) handleOwnerResolved(msg OwnerResolvedMsg) Model {
 	newModel.totalPodCount = len(allPods)
 	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
 		SetStatusSummary(buildStatusSummary(allPods))
+
+	// Re-apply collapse after owner resolution. Group keys change during
+	// resolution (e.g. ReplicaSet/foo → Deployment/foo) which invalidates
+	// the collapsed set built from pre-resolution keys.
+	if newModel.collapseAfterResolve {
+		if newModel.savedAllCollapsed {
+			newModel.podList = newModel.podList.CollapseAll()
+		} else {
+			newModel.podList = newModel.podList.SmartCollapse()
+		}
+		newModel.collapseAfterResolve = false
+	}
+
 	return newModel
 }
 
@@ -516,12 +545,13 @@ func (m Model) handleMetricsLoaded(msg MetricsLoadedMsg) Model {
 
 	if m.allPods != nil {
 		allPods := k8s.MergePodMetrics(m.allPods, msg.Metrics)
-		displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery())
+		displayPods := applyFilters(allPods, m.filter, m.activeSearchQuery(), m.controllerDrillDown)
 		newModel.allPods = allPods
 		newModel.pendingMetrics = nil
 		newModel.podList = m.podList.SetItemsSorted(displayPods)
 		newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(allPods))).
 			SetStatusSummary(buildStatusSummary(allPods))
+	
 		return newModel
 	}
 
@@ -709,7 +739,9 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 	newWatcher := k8s.NewPodWatcher(m.client.Clientset(), ns)
 	newWatchID := m.watchID + 1
 
-	// Reset controller filter on namespace switch
+	// Reset controller filter and drill-down on namespace switch.
+	// controllerDrillDown is intentionally omitted (zero-valued) to clear it,
+	// since controller group keys are namespace-scoped and invalid after switch.
 	newFilter := k8s.ResourceFilter{ShowDirtyOnly: m.filter.ShowDirtyOnly}
 	newModel := Model{
 		client:           m.client,
@@ -735,7 +767,8 @@ func (m Model) switchNamespace(ns string) (Model, tea.Cmd) {
 		searchQuery:            m.searchQuery,
 		metricsAvailable:       m.metricsAvailable,
 		prefsPath:              m.prefsPath,
-		initialCollapseApplied: true, // don't re-apply collapse on namespace switch
+		savedAllCollapsed:      m.savedAllCollapsed,
+		initialCollapseApplied: false, // re-apply collapse preference when new pods arrive
 	}
 	return newModel, tea.Batch(newModel.startAndWatchCmd(), newModel.fetchMetricsCmd(), loadingTickCmd(), newModel.savePrefsCmd())
 }

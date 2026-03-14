@@ -12,12 +12,13 @@ const AllNamespacesSentinel = "*"
 
 // Preferences holds lightweight UI state persisted across runs.
 type Preferences struct {
-	SortColumn   string `json:"sort_column"`
-	SortOrder    string `json:"sort_order"`
-	DirtyFilter  bool   `json:"dirty_filter"`
-	Namespace    string `json:"namespace,omitempty"`
-	AllCollapsed bool   `json:"all_collapsed"`
-	SearchQuery  string `json:"search_query,omitempty"`
+	SortColumn          string `json:"sort_column"`
+	SortOrder           string `json:"sort_order"`
+	DirtyFilter         bool   `json:"dirty_filter"`
+	Namespace           string `json:"namespace,omitempty"`
+	AllCollapsed        bool   `json:"all_collapsed"`
+	SearchQuery         string `json:"search_query,omitempty"`
+	ControllerDrillDown string `json:"controller_drill_down,omitempty"`
 }
 
 // validSortColumns lists recognized sort column labels.

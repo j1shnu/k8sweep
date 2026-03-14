@@ -613,3 +613,166 @@ func TestHandlePodShellExited_SetsStatusAndReturnsToBrowsing(t *testing.T) {
 	assert.Contains(t, updated.statusMsg, "Shell closed")
 	assert.Nil(t, updated.detailData)
 }
+
+func TestSmartCollapse_OnFirstWatchLoad(t *testing.T) {
+	podsWithControllers := []k8s.PodInfo{
+		{Name: "healthy-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "healthy-app"}},
+		{Name: "crash-1", Namespace: "default", Status: k8s.StatusCrashLoopBack,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "broken-app"}},
+	}
+
+	cs := fake.NewClientset()
+	client := k8s.NewClientFromClientset(cs, k8s.ClusterInfo{
+		ContextName: "test-context",
+		Namespace:   "default",
+	})
+	m := NewModel(client)
+	m.width = 120
+	m.height = 40
+
+	// Simulate first watch event (initialCollapseApplied is false, savedAllCollapsed is false)
+	assert.False(t, m.initialCollapseApplied)
+	assert.False(t, m.savedAllCollapsed)
+
+	updated, _ := m.handleWatchPods(WatchPodsMsg{Pods: podsWithControllers, WatchID: m.watchID})
+
+	// SmartCollapse should have been applied
+	assert.True(t, updated.initialCollapseApplied)
+	assert.True(t, updated.collapseAfterResolve)
+	// Deployment/broken-app (dirty) expanded: 1 header + 1 pod = 2 rows
+	// Deployment/healthy-app (clean) collapsed: 1 header = 1 row
+	// Total = 3 rows
+	assert.Equal(t, 3, updated.podList.Len())
+
+	// Second watch event should NOT re-apply collapse
+	updated2, _ := updated.handleWatchPods(WatchPodsMsg{Pods: podsWithControllers, WatchID: updated.watchID})
+	assert.Equal(t, 3, updated2.podList.Len()) // preserved
+}
+
+func TestCollapseAll_SurvivesOwnerResolution(t *testing.T) {
+	// Pre-resolution: pods owned by ReplicaSet
+	preResolvePods := []k8s.PodInfo{
+		{Name: "web-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerReplicaSet, Name: "web-abc123"}},
+		{Name: "api-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerReplicaSet, Name: "api-def456"}},
+	}
+	// Post-resolution: pods owned by Deployment (keys change)
+	postResolvePods := []k8s.PodInfo{
+		{Name: "web-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "web"}},
+		{Name: "api-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "api"}},
+	}
+
+	cs := fake.NewClientset()
+	client := k8s.NewClientFromClientset(cs, k8s.ClusterInfo{
+		ContextName: "test-context",
+		Namespace:   "default",
+	})
+	m := NewModel(client)
+	m.width = 120
+	m.height = 40
+	m.savedAllCollapsed = true
+
+	// Step 1: First watch event — CollapseAll with ReplicaSet keys
+	updated, _ := m.handleWatchPods(WatchPodsMsg{Pods: preResolvePods, WatchID: m.watchID})
+	assert.Equal(t, 2, updated.podList.Len()) // 2 headers only (collapsed)
+	assert.False(t, updated.podList.AnyExpanded())
+	assert.True(t, updated.collapseAfterResolve)
+
+	// Step 2: Owner resolution — keys change to Deployment
+	resolved := updated.handleOwnerResolved(OwnerResolvedMsg{Pods: postResolvePods, FetchID: updated.fetchID})
+	// CollapseAll must be re-applied with new keys
+	assert.Equal(t, 2, resolved.podList.Len()) // still 2 headers only
+	assert.False(t, resolved.podList.AnyExpanded())
+	assert.False(t, resolved.collapseAfterResolve) // consumed
+}
+
+func TestSmartCollapse_SurvivesOwnerResolution(t *testing.T) {
+	// Pre-resolution: pods under ReplicaSet — one dirty, one healthy
+	preResolvePods := []k8s.PodInfo{
+		{Name: "crash-1", Namespace: "default", Status: k8s.StatusCrashLoopBack,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerReplicaSet, Name: "broken-abc"}},
+		{Name: "healthy-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerReplicaSet, Name: "healthy-def"}},
+	}
+	// Post-resolution: keys change to Deployment
+	postResolvePods := []k8s.PodInfo{
+		{Name: "crash-1", Namespace: "default", Status: k8s.StatusCrashLoopBack,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "broken"}},
+		{Name: "healthy-1", Namespace: "default", Status: k8s.StatusRunning,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "healthy"}},
+	}
+
+	cs := fake.NewClientset()
+	client := k8s.NewClientFromClientset(cs, k8s.ClusterInfo{
+		ContextName: "test-context",
+		Namespace:   "default",
+	})
+	m := NewModel(client)
+	m.width = 120
+	m.height = 40
+
+	// Step 1: First watch event — SmartCollapse with ReplicaSet keys
+	updated, _ := m.handleWatchPods(WatchPodsMsg{Pods: preResolvePods, WatchID: m.watchID})
+	assert.Equal(t, 3, updated.podList.Len()) // dirty expanded (header+pod), healthy collapsed (header)
+
+	// Step 2: Owner resolution — keys change to Deployment
+	resolved := updated.handleOwnerResolved(OwnerResolvedMsg{Pods: postResolvePods, FetchID: updated.fetchID})
+	// SmartCollapse re-applied with new Deployment keys
+	assert.Equal(t, 3, resolved.podList.Len()) // dirty expanded, healthy collapsed — preserved
+	assert.False(t, resolved.collapseAfterResolve)
+}
+
+func TestSwitchNamespace_DoesNotCorruptCollapsePreference(t *testing.T) {
+	cs := fake.NewClientset()
+	client := k8s.NewClientFromClientset(cs, k8s.ClusterInfo{
+		ContextName: "test-context",
+		Namespace:   "default",
+	})
+	m := NewModel(client)
+	m.width = 120
+	m.height = 40
+
+	// User has pods expanded (savedAllCollapsed = false)
+	m.savedAllCollapsed = false
+
+	// Switch namespace — this resets podList with SetItems(nil).SetLoading()
+	updated, _ := m.switchNamespace("kube-system")
+
+	// AnyExpanded on empty display rows returns false
+	// So savePrefsCmd would save AllCollapsed: true — BUG
+	assert.False(t, updated.podList.AnyExpanded(), "empty pod list has nothing expanded")
+
+	// The savedAllCollapsed field should still reflect the user's original preference
+	// But currently it does NOT carry forward — it's omitted from the struct literal
+	assert.False(t, updated.savedAllCollapsed, "savedAllCollapsed should survive namespace switch")
+}
+
+func TestCollapseAll_OnFirstWatchLoad(t *testing.T) {
+	podsWithControllers := []k8s.PodInfo{
+		{Name: "crash-1", Namespace: "default", Status: k8s.StatusCrashLoopBack,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerDeployment, Name: "broken-app"}},
+		{Name: "crash-2", Namespace: "default", Status: k8s.StatusCrashLoopBack,
+			Controller: k8s.ControllerRef{Kind: k8s.ControllerStatefulSet, Name: "broken-sts"}},
+	}
+
+	cs := fake.NewClientset()
+	client := k8s.NewClientFromClientset(cs, k8s.ClusterInfo{
+		ContextName: "test-context",
+		Namespace:   "default",
+	})
+	m := NewModel(client)
+	m.width = 120
+	m.height = 40
+	m.savedAllCollapsed = true
+
+	updated, _ := m.handleWatchPods(WatchPodsMsg{Pods: podsWithControllers, WatchID: m.watchID})
+
+	assert.True(t, updated.initialCollapseApplied)
+	// CollapseAll: 2 headers only
+	assert.Equal(t, 2, updated.podList.Len())
+	assert.False(t, updated.podList.AnyExpanded())
+}

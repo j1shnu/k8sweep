@@ -37,9 +37,9 @@ type Model struct {
 	state   State
 	subview Subview
 	scroll  int
-	width   int
-	height  int
-	lines   []string // pre-rendered content lines
+	width          int
+	height         int
+	lines          []string // pre-rendered content lines
 
 	// Events subview
 	events    []k8s.PodEvent

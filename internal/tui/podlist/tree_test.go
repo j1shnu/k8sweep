@@ -171,6 +171,6 @@ func TestControllerGroupKey(t *testing.T) {
 		{k8s.ControllerRef{}, "Standalone"},
 	}
 	for _, tt := range tests {
-		assert.Equal(t, tt.want, controllerGroupKey(tt.ref))
+		assert.Equal(t, tt.want, ControllerGroupKey(tt.ref))
 	}
 }

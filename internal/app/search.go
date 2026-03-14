@@ -30,7 +30,7 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel.searchSeq++
 		// Re-apply filters with confirmed search
 		if m.allPods != nil {
-			displayPods := applyFilters(m.allPods, m.filter, newModel.searchQuery)
+			displayPods := applyFilters(m.allPods, m.filter, newModel.searchQuery, m.controllerDrillDown)
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
 			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
 				SetStatusSummary(buildStatusSummary(m.allPods))
@@ -49,7 +49,7 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		newModel.searchSeq++
 		// Clear search filter
 		if m.allPods != nil {
-			displayPods := applyFilters(m.allPods, m.filter, "")
+			displayPods := applyFilters(m.allPods, m.filter, "", m.controllerDrillDown)
 			newModel.podList = m.podList.SetItemsSorted(displayPods)
 			newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
 				SetStatusSummary(buildStatusSummary(m.allPods))
@@ -83,7 +83,7 @@ func (m Model) handleSearchDebounced(msg SearchDebouncedMsg) Model {
 	if m.allPods == nil {
 		return m
 	}
-	displayPods := applyFilters(m.allPods, m.filter, msg.Query)
+	displayPods := applyFilters(m.allPods, m.filter, msg.Query, m.controllerDrillDown)
 	newModel := m
 	newModel.podList = m.podList.SetItemsSorted(displayPods)
 	newModel.header = m.header.SetFilter(m.filter.ShowDirtyOnly, buildPodCountLabel(m.filter.ShowDirtyOnly, len(displayPods), len(m.allPods))).
