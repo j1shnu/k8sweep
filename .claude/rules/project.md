@@ -12,6 +12,11 @@
 - **Never use grep/Grep** for Go symbol searches — LSP is semantically accurate
 - Reserve grep only for non-Go files (README, YAML, Makefile) or raw text patterns
 
+## Verify Before Stating
+
+- **Never state project-specific facts without verifying from source code first** — this includes keybindings (`keys.go`), state names, field names, function signatures, message types, preferences, and UI behavior
+- When spawning subagents, instruct them to verify facts from code and provide specific file paths to check — subagents are prone to hallucinating implementation details
+
 ## Documentation
 
 - **Update README.md** when adding/changing features, keybindings, CLI flags, or user-facing behavior
