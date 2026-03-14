@@ -121,26 +121,38 @@ var (
 			Foreground(lipgloss.Color("#338833"))
 )
 
+// Pre-built status styles to avoid per-render allocations.
+var (
+	statusRunning      = lipgloss.NewStyle().Foreground(ColorRunning)
+	statusCompleted    = lipgloss.NewStyle().Foreground(ColorCompleted)
+	statusFailed       = lipgloss.NewStyle().Foreground(ColorFailed)
+	statusEvicted      = lipgloss.NewStyle().Foreground(ColorEvicted)
+	statusCrashLoop    = lipgloss.NewStyle().Foreground(ColorCrashLoop)
+	statusOOMKilled    = lipgloss.NewStyle().Foreground(ColorOOMKilled)
+	statusPending      = lipgloss.NewStyle().Foreground(ColorPending)
+	statusUnknown      = lipgloss.NewStyle().Foreground(ColorUnknown)
+)
+
 // StyleForStatus returns the appropriate lipgloss style for a pod status.
 func StyleForStatus(status string) lipgloss.Style {
 	switch status {
 	case "Running":
-		return lipgloss.NewStyle().Foreground(ColorRunning)
+		return statusRunning
 	case "Completed":
-		return lipgloss.NewStyle().Foreground(ColorCompleted)
+		return statusCompleted
 	case "Failed":
-		return lipgloss.NewStyle().Foreground(ColorFailed)
+		return statusFailed
 	case "Evicted":
-		return lipgloss.NewStyle().Foreground(ColorEvicted)
+		return statusEvicted
 	case "CrashLoopBackOff":
-		return lipgloss.NewStyle().Foreground(ColorCrashLoop)
+		return statusCrashLoop
 	case "ImagePullError":
-		return lipgloss.NewStyle().Foreground(ColorFailed)
+		return statusFailed
 	case "OOMKilled":
-		return lipgloss.NewStyle().Foreground(ColorOOMKilled)
+		return statusOOMKilled
 	case "Pending":
-		return lipgloss.NewStyle().Foreground(ColorPending)
+		return statusPending
 	default:
-		return lipgloss.NewStyle().Foreground(ColorUnknown)
+		return statusUnknown
 	}
 }
